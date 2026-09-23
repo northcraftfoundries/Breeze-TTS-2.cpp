@@ -10,6 +10,11 @@ void BackboneState::init(BreezeModel & m, int max_seq) {
     pos = 0;
 }
 
+void BackboneState::load_prefix(const std::vector<std::vector<uint8_t>> & rows, int n) {
+    kv.load(rows, n);
+    pos = n;
+}
+
 static ggml_tensor * build_audio_embed(ggml_context * ctx, BreezeModel & m, ggml_tensor * idx, int n) {
     const int nc = m.cfg.num_codebooks;
     const int hidden = m.cfg.hidden_size;

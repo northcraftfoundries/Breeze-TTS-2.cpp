@@ -74,7 +74,6 @@ void KVCache::load(const std::vector<std::vector<uint8_t>> & rows, int n) {
         ggml_tensor * t = i < k.size() ? k[i] : v[i - k.size()];
         ggml_backend_tensor_set(t, rows[i].data(), 0, bytes);
     }
-    len = n;
 }
 
 Graph::Graph(size_t n_nodes) {

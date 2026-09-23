@@ -104,16 +104,16 @@ static void build_prefix(BreezeModel & m, const ChunkRef & ref, PromptPrefix & p
     std::vector<float> emb = assemble(m, prefix_segments(m, ref.text, ref.codes, ref.n_frames), n);
     tm.prompt += since(t0);
 
-    t0 = std::chrono::steady_clock::now();
+    // init/free bracket the timed window rather than sit inside it, matching generate_chunk,
+    // where only backbone_run (and here, the save) count as prefill
     BackboneState st;
     st.init(m, n);
+    t0 = std::chrono::steady_clock::now();
     backbone_run(m, st, emb, n);
     prefix.kv = st.kv.save(n);
-    st.free();
     tm.prefill += since(t0);
+    st.free();
 
-    prefix.text = ref.text;
-    prefix.codes = ref.codes;
     prefix.len = n;
 }
 
@@ -129,8 +129,9 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
     const bool has_ref = !ref.codes.empty() && !ref.text.empty();
     const bool use_cfg = req.cfg_scale != 1.0f;
 
-    if (has_ref && (prefix.text != ref.text || prefix.codes != ref.codes))
-        build_prefix(m, ref, prefix, tm);
+    // the reference only changes in GenSession::begin and where speak adopts the opening piece,
+    // and both clear the prefix when it does, so an empty prefix is exactly a stale one
+    if (has_ref && prefix.len == 0) build_prefix(m, ref, prefix, tm);
     const int pre_len = has_ref ? prefix.len : 0;
 
     // only the tail is encoded here, the reference half comes out of the prefix cache
@@ -149,12 +150,8 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
 
     t0 = clock_now();
     if (has_ref) {
-        st_c.kv.load(prefix.kv, pre_len);
-        st_c.pos = pre_len;
-        if (use_cfg) {
-            st_u.kv.load(prefix.kv, pre_len);
-            st_u.pos = pre_len;
-        }
+        st_c.load_prefix(prefix.kv, pre_len);
+        if (use_cfg) st_u.load_prefix(prefix.kv, pre_len);
     }
     StepOut o_c = backbone_run(m, st_c, emb_c, total_c);
     StepOut o_u;
@@ -254,8 +251,8 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
 }
 
 void GenSession::begin(BreezeModel & m, MimiCodec & codec, const GenRequest & req, GenTimings * tm) {
-    // the cached kv belongs to the model that computed it; a new voice is caught by the key
-    if (m_model != &m) m_prefix = PromptPrefix();
+    // a new session can bring a new model, voice or reference, so the old prefix never applies
+    m_prefix = PromptPrefix();
     m_model = &m;
     m_codec = &codec;
     m_req = req;
@@ -292,11 +289,13 @@ bool GenSession::speak(const std::string & text, const AudioCallback & cb, GenTi
     const bool ok = generate_chunk(*m_model, *m_codec, m_req, text, anchor, m_prefix,
                                    (uint32_t) m_req.seed + m_piece, cb, t, m_start, made);
     m_piece++;
-    // the opening piece stands in as the reference when there was no clip to clone
+    // the opening piece stands in as the reference when there was no clip to clone. that changes
+    // the reference itself, so the prefix built for the old (empty) one is stale
     if (ok && m_codes.empty() && made.n_frames > 0) {
         m_codes = std::move(made.codes);
         m_frames = made.n_frames;
         m_text = made.text;
+        m_prefix = PromptPrefix();
     }
     return ok;
 }

@@ -12,6 +12,10 @@ struct BackboneState {
     void init(BreezeModel & m, int max_seq);
     void reset() { kv.reset(); pos = 0; }
     void free() { kv.free(); }
+
+    // loads a saved prefix into the cache and moves pos past it in one call, so a caller can't
+    // load the rows and forget to advance pos to match
+    void load_prefix(const std::vector<std::vector<uint8_t>> & rows, int n);
 };
 
 struct StepOut {

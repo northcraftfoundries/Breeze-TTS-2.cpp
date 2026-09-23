@@ -37,7 +37,8 @@ struct KVCache {
     // host copy of the first n positions of every layer, k layers then v layers, so a shared
     // prompt prefix can be prefilled once and reused. single branch caches only
     std::vector<std::vector<uint8_t>> save(int n) const;
-    // writes rows from save back at position 0 and leaves the cache n long
+    // writes rows from save back at position 0. does not touch len; the caller owns the
+    // position, e.g. via BackboneState::load_prefix
     void load(const std::vector<std::vector<uint8_t>> & rows, int n);
 };
 
