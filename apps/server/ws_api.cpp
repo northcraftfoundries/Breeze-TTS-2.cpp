@@ -102,6 +102,7 @@ static std::vector<std::string> drain(std::string & buf, int budget, bool force)
 namespace {
 
 struct Session {
+    // only the speaker thread touches gen, the reader hands it work through the fields below
     GenSession gen;
     std::mutex mu;
     std::condition_variable cv;
@@ -113,6 +114,11 @@ struct Session {
     bool ending = false;
     bool quit = false;
     bool speaking = false;
+    // a start waiting for the speaker to open it with gen.begin
+    bool begin_pending = false;
+    GenRequest pending;
+    // the reader's copy of gen.needs_anchor(), since speak() changes the answer without s.mu
+    bool needs_anchor = true;
     std::atomic<bool> cancel{false};
 };
 
@@ -123,29 +129,37 @@ static void event(WsConn & c, const std::string & type, const std::string & extr
 }
 
 // drains the queue one piece at a time, taking the gpu lock for each so other connections interleave
-static void speaker(WsConn & conn, Session & s, std::mutex & gpu) {
+static void speaker(WsConn & conn, Session & s, std::mutex & gpu, BreezeModel & model, MimiCodec & codec) {
     for (;;) {
         std::string piece;
         {
             std::unique_lock<std::mutex> lock(s.mu);
             s.speaking = false;
-            // handle_start may be waiting for the piece that just stopped so it can reset the
-            // session; notify before this thread's own wait so that wakeup can't be missed
-            s.cv.notify_all();
-            s.cv.wait(lock, [&] { return s.quit || !s.queue.empty(); });
+            // a cancel that lands after the piece already finished has nothing left to stop, and
+            // left set it would swallow the next piece
+            s.cancel = false;
+            s.cv.wait(lock, [&] { return s.quit || s.begin_pending || !s.queue.empty(); });
             if (s.quit) return;
+            if (s.begin_pending) {
+                // a websocket start always arrives with pre-encoded codes or none, never ref_audio,
+                // so begin only copies the request and is cheap enough to run under the lock. that
+                // keeps taking the request and opening the session one step no other start can split
+                s.begin_pending = false;
+                s.gen.begin(model, codec, s.pending);
+                continue;
+            }
             piece = s.queue.front();
             s.queue.pop_front();
             s.speaking = true;
         }
-        if (s.cancel) { s.cancel = false; continue; }
+        if (s.cancel) continue;
 
         std::unique_lock<std::mutex> hold(gpu, std::try_to_lock);
         if (!hold) {
             event(conn, "queued");
             hold.lock();
         }
-        if (s.cancel) { s.cancel = false; continue; }
+        if (s.cancel) continue;
 
         {
             std::lock_guard<std::mutex> lock(s.mu);
@@ -162,10 +176,16 @@ static void speaker(WsConn & conn, Session & s, std::mutex & gpu) {
         });
         hold.unlock();
 
-        if (s.cancel) { event(conn, "cancelled"); s.cancel = false; continue; }
-        if (!ok && !conn.alive()) return;
-
         std::lock_guard<std::mutex> lock(s.mu);
+        // voice design adopts its first piece as the reference inside speak. a start that came
+        // in meanwhile has already set the mirror for the session it is about to open
+        if (!s.begin_pending) s.needs_anchor = s.gen.needs_anchor();
+        if (s.cancel) { event(conn, "cancelled"); continue; }
+        if (!ok && !conn.alive()) {
+            // nothing can reach the client any more, the reader sees the close and joins this thread
+            s.speaking = false;
+            return;
+        }
         if (s.queue.empty() && s.ending) {
             s.ending = false;
             event(conn, "done");
@@ -173,9 +193,8 @@ static void speaker(WsConn & conn, Session & s, std::mutex & gpu) {
     }
 }
 
-static void handle_start(WsConn & conn, Session & s, const std::string & msg, BreezeModel & model,
-                         MimiCodec & codec, VoiceStore & store, int chunk_first, int chunk_max,
-                         int split_chars) {
+static void handle_start(WsConn & conn, Session & s, const std::string & msg, VoiceStore & store,
+                         int chunk_first, int chunk_max, int split_chars) {
     GenRequest g;
     g.instruction = json_str(msg, "instruction");
     if (g.instruction.empty()) g.instruction = "Speak clearly and naturally.";
@@ -193,29 +212,34 @@ static void handle_start(WsConn & conn, Session & s, const std::string & msg, Br
         return;
     }
 
-    // begin() and speak() both touch GenSession state (the reference, the prefix cache), and the
-    // speaker thread runs speak() without s.mu, so a start landing mid piece would race it. cancel
-    // whatever is in flight and wait for the speaker to actually stop before calling begin
-    std::unique_lock<std::mutex> lock(s.mu);
-    s.queue.clear();
-    s.buffer.clear();
-    if (s.speaking) s.cancel = true;
-    s.cv.wait(lock, [&] { return !s.speaking; });
-
-    s.instruction = g.instruction;
-    s.budget = (int) json_num(msg, "split_chars", split_chars);
-    // streaming drains sentence by sentence, so it always needs a real budget to aim at
-    if (s.budget <= 0) s.budget = 600;
-    s.gen.begin(model, codec, g);
-    s.started = true;
-    s.cancel = false;
+    // the speaker thread owns GenSession and opens the new session itself before its next piece,
+    // so the reader never waits on a piece in flight. that piece belongs to the old session, so
+    // it is cut short, and a pending end from the old session must not report done in this one
+    {
+        std::lock_guard<std::mutex> lock(s.mu);
+        s.queue.clear();
+        s.buffer.clear();
+        s.ending = false;
+        s.cancel = s.speaking;
+        // the same test GenSession::begin uses to take the reference, ref_audio aside, which a
+        // websocket start never carries
+        s.needs_anchor = g.ref_codes.empty() || g.ref_frames <= 0 || g.ref_text.empty();
+        s.instruction = g.instruction;
+        s.budget = (int) json_num(msg, "split_chars", split_chars);
+        // streaming drains sentence by sentence, so it always needs a real budget to aim at
+        if (s.budget <= 0) s.budget = 600;
+        s.pending = std::move(g);
+        s.begin_pending = true;
+        s.started = true;
+    }
+    s.cv.notify_one();
     event(conn, "started", "\"voice_id\":\"" + esc(vid) + "\"");
 }
 
 void ws_connection(WsConn & conn, BreezeModel & model, MimiCodec & codec, VoiceStore & store,
                    std::mutex & gpu, int chunk_first, int chunk_max, int split_chars) {
     Session s;
-    std::thread worker([&] { speaker(conn, s, gpu); });
+    std::thread worker([&] { speaker(conn, s, gpu, model, codec); });
     event(conn, "ready", "\"sample_rate\":24000,\"format\":\"s16le\"");
 
     std::string msg;
@@ -225,7 +249,7 @@ void ws_connection(WsConn & conn, BreezeModel & model, MimiCodec & codec, VoiceS
         const std::string type = json_str(msg, "type");
 
         if (type == "start") {
-            handle_start(conn, s, msg, model, codec, store, chunk_first, chunk_max, split_chars);
+            handle_start(conn, s, msg, store, chunk_first, chunk_max, split_chars);
             continue;
         }
         if (!s.started) {
@@ -243,7 +267,7 @@ void ws_connection(WsConn & conn, BreezeModel & model, MimiCodec & codec, VoiceS
             const bool force = type != "text";
             // while there is no clip to clone the opening piece doubles as the reference, and a
             // long one makes the model skip sentences later, so it stays near a normal clip length
-            const int budget = s.gen.needs_anchor() && s.queue.empty() ? 200 : s.budget;
+            const int budget = s.needs_anchor && s.queue.empty() ? 200 : s.budget;
             for (std::string & p : drain(s.buffer, budget, force)) s.queue.push_back(p);
             if (type == "end") s.ending = true;
             lock.unlock();

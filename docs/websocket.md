@@ -44,8 +44,9 @@ the rate given in the `ready` message, exactly like the HTTP body.
 `POST /v1/voices`, which hands back an id. See [voices.md](voices.md). Leaving
 `voice_id` out gives voice design driven by `instruction`.
 
-Sending `start` while a piece is still being spoken cancels that piece first, same
-as sending `cancel` would, so you receive `cancelled` before the new session opens.
+Sending `start` while a piece is being spoken cuts that piece short, so you may
+receive `cancelled` before speech in the new session begins. It is not guaranteed:
+a piece that had not started generating or had just finished sends none.
 
 ## Messages you receive
 
