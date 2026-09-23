@@ -215,6 +215,48 @@ reference implementation reaches for CUDA graphs on exactly this module; ggml's
 Vulkan backend has no equivalent, and the single shared backend and allocator
 rule out overlapping stages across threads.
 
+### On the CPU
+
+The CPU is bound by memory bandwidth instead. Every decode step streams the
+weights it uses from RAM: about 1.5 GB for a backbone step at Q8_0, and the
+depth decoder reads its roughly 330M parameters 15 times per frame. Measured on
+an i9-12900K under WSL2 at Q8_0, 12 threads, one 19 s piece at `cfg_scale` 1:
+
+| Stage | Per frame | Share |
+| --- | --- | --- |
+| Backbone decode | 23.6 ms | 13% |
+| Depth decode | 79.7 ms | 45% |
+| Vocoder | 73.6 ms | 42% |
+
+That is about 177 ms of compute per 80 ms frame, so the CPU runs at about 0.45x
+realtime. The backbone and depth decoder stop getting faster past about 8
+threads, because the memory bus saturates. The vocoder is convolution work and
+keeps scaling a little further, and it pays in full for the left context every
+flush re-decodes, which is why the CPU's default chunk ceiling is 60 frames
+rather than 25.
+
+Several changes brought the CPU there, measured against the original code at
+ggml's default of 4 threads, on the benchmark prompts (median of 3):
+
+| Case | Before | After |
+| --- | --- | --- |
+| `cfg_scale` 1, per frame | 283 ms | 193 ms |
+| `cfg_scale` 4, per frame | 333 ms | 201 ms |
+| `cfg_scale` 4, time to first audio | 2.11 s | 1.26 s |
+| Cloned voice, three pieces, prefill | 8.05 s | 1.24 s |
+| Cloned voice, three pieces, time to first audio | 3.99 s | 1.43 s |
+| One 19 s piece, per frame | 292 ms | 177 ms |
+
+- **Thread count.** The CPU backend never set one, so ggml ran on 4 threads. It
+  now defaults to half the CPUs the process may use, and never fewer than 4.
+- **One graph per decode step for both CFG branches** (see classifier free
+  guidance above).
+- **The reference prefix is prefilled once per session** (also above).
+- **A 60-frame chunk ceiling on the CPU.**
+- **A persistent ggml thread pool instead of OpenMP.** OpenMP keeps a team per
+  calling thread. In the server those teams outgrew the CPU count, and every
+  request slowed about fourfold after the first voice upload.
+
 ## ggml notes
 
 Things worth knowing if you touch the graph code.
