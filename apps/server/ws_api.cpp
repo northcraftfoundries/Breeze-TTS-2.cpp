@@ -129,6 +129,9 @@ static void speaker(WsConn & conn, Session & s, std::mutex & gpu) {
         {
             std::unique_lock<std::mutex> lock(s.mu);
             s.speaking = false;
+            // handle_start may be waiting for the piece that just stopped so it can reset the
+            // session; notify before this thread's own wait so that wakeup can't be missed
+            s.cv.notify_all();
             s.cv.wait(lock, [&] { return s.quit || !s.queue.empty(); });
             if (s.quit) return;
             piece = s.queue.front();
@@ -190,15 +193,21 @@ static void handle_start(WsConn & conn, Session & s, const std::string & msg, Br
         return;
     }
 
-    std::lock_guard<std::mutex> lock(s.mu);
+    // begin() and speak() both touch GenSession state (the reference, the prefix cache), and the
+    // speaker thread runs speak() without s.mu, so a start landing mid piece would race it. cancel
+    // whatever is in flight and wait for the speaker to actually stop before calling begin
+    std::unique_lock<std::mutex> lock(s.mu);
+    s.queue.clear();
+    s.buffer.clear();
+    if (s.speaking) s.cancel = true;
+    s.cv.wait(lock, [&] { return !s.speaking; });
+
     s.instruction = g.instruction;
     s.budget = (int) json_num(msg, "split_chars", split_chars);
     // streaming drains sentence by sentence, so it always needs a real budget to aim at
     if (s.budget <= 0) s.budget = 600;
     s.gen.begin(model, codec, g);
     s.started = true;
-    s.queue.clear();
-    s.buffer.clear();
     s.cancel = false;
     event(conn, "started", "\"voice_id\":\"" + esc(vid) + "\"");
 }
