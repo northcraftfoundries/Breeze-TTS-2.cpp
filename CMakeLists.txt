@@ -117,6 +117,9 @@ endif()
 
 if(BREEZE_BUILD_TESTS)
     enable_testing()
+    add_executable(test_cpu_affinity tests/test_cpu_affinity.cpp)
+    target_link_libraries(test_cpu_affinity PRIVATE breeze_core)
+    add_test(NAME cpu_affinity COMMAND test_cpu_affinity)
 
     # needs a real gguf, so it skips itself (exit 77) unless BREEZE_TEST_MODEL is set; ctest
     # inherits the environment, so setting it before invoking ctest is enough
