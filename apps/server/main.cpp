@@ -1,6 +1,7 @@
 #include "server.h"
 
 #include "breeze/cpu_affinity.h"
+#include "breeze/generation.h"
 
 #include <cstdio>
 #include <cstring>
@@ -17,7 +18,7 @@ int main(int argc, char ** argv) {
         printf("\n");
         printf("  --chunk-first  frames in the first streamed chunk, lower starts sooner (default 4)\n");
         printf("  --chunk-max    frames the chunk ramps up to, higher is more efficient\n");
-        printf("                 (0 = auto: 25 on GPU, 60 on CPU)\n");
+        printf("                 (0 = auto: %d on GPU, %d on CPU)\n", breeze::chunk_max_gpu, breeze::chunk_max_cpu);
         printf("                 set both the same to stream a fixed chunk size\n");
         printf("  --split-chars  default length long text is broken up at (default 600), 0 sends the\n");
         printf("                 whole thing through in one pass. a request can still override it\n");
@@ -52,8 +53,8 @@ int main(int argc, char ** argv) {
         else { fprintf(stderr, "unknown arg: %s\n", a.c_str()); return 1; }
     }
     if (opts.split_chars < 0) opts.split_chars = 0;
-    if (opts.chunk_first < 1 || opts.chunk_max < 0) {
-        fprintf(stderr, "--chunk-first must be at least 1, and --chunk-max 0 (auto) or more\n");
+    if (const char * e = chunk_flags_error(opts.chunk_first, opts.chunk_max)) {
+        fprintf(stderr, "%s\n", e);
         return 1;
     }
 

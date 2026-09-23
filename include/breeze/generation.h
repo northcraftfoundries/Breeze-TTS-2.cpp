@@ -15,12 +15,17 @@ namespace breeze {
 // gpu keeps chunks short for latency: it's a deliberate tradeoff, not free (see docs/server.md,
 // the gpu vocoder still drops from 13.2 to 10.9 ms/frame past this point)
 constexpr int chunk_max_gpu = 25;
-// cpu pays for the re-decoded context in full, about 4x what the gpu pays; 60 is where the
-// measured vocoder cost stops falling
+// cpu pays for the re-decoded context in full (vocoder 97.9 ms/frame at 25 against the gpu's
+// 13.2); 60 is where the measured cpu vocoder cost stops falling
 constexpr int chunk_max_cpu = 60;
 
 // requested > 0 always wins, otherwise pick the ceiling for the backend
 int resolve_chunk_max(int requested, bool is_gpu);
+// the chunk ramp: starts at first (at least 1, at most max) and grows by a third each flush
+int first_chunk(int requested_first, int max);
+int next_chunk(int chunk, int max);
+// the one rule both apps apply to their chunk flags: nullptr when valid, else the message
+const char * chunk_flags_error(int chunk_first, int chunk_max);
 
 struct GenRequest {
     std::string text;

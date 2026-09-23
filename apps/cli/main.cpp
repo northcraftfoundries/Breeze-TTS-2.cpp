@@ -39,12 +39,12 @@ static void usage() {
            "  --max-new <n>       max frames to generate\n"
            "  --output <wav>      output path (default output.wav)\n"
            "  --chunk-first <n>   frames in the first streamed chunk (default 4)\n"
-           "  --chunk-max <n>     frames the chunk ramps up to (0 = auto: 25 on GPU, 60 on CPU)\n"
+           "  --chunk-max <n>     frames the chunk ramps up to (0 = auto: %d on GPU, %d on CPU)\n"
            "  --timings           print a stage by stage latency breakdown\n"
            "  --cpu               force CPU backend\n"
            "  --threads <n>       CPU threads, 0 or omitted picks a default\n"
            "  --cpus <list>       pin the process to these logical CPUs, e.g. 0-15\n"
-           "  --pcores            pin the process to the performance cores (auto detected)\n");
+           "  --pcores            pin the process to the performance cores (auto detected)\n", chunk_max_gpu, chunk_max_cpu);
 }
 
 int main(int argc, char ** argv) {
@@ -91,8 +91,8 @@ int main(int argc, char ** argv) {
         else { fprintf(stderr, "unknown arg: %s\n", a.c_str()); return 1; }
     }
 
-    if (req.chunk_first < 1 || req.chunk_max < 0) {
-        fprintf(stderr, "--chunk-first must be at least 1, and --chunk-max 0 (auto) or more\n");
+    if (const char * e = chunk_flags_error(req.chunk_first, req.chunk_max)) {
+        fprintf(stderr, "%s\n", e);
         return 1;
     }
 
