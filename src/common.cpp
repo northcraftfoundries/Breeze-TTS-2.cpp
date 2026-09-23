@@ -33,18 +33,24 @@ void Backend::init(bool prefer_gpu) {
     if (!is_gpu) set_threads(0);
 }
 
-// one persistent pool serves every graph, whichever thread computes it. openmp instead gives each
-// calling thread its own team, and in a server where requests land on different threads those
-// teams pile up past the cpu count, at which point libgomp parks idle threads between parallel
-// regions and every one of the thousands of small graphs per second pays a wake up
+// one persistent pool serves every graph, whichever thread computes it, one graph at a time: the
+// backend and its allocator were never safe to drive from two threads at once, and the pool isn't
+// either. openmp instead gives each calling thread its own team, and in a server where requests
+// land on different threads those teams pile up past the cpu count, at which point libgomp parks
+// idle threads between parallel regions and every one of the thousands of small graphs per second
+// pays a wake up
 void Backend::set_threads(int n) {
     if (is_gpu) return;
-    n_threads = n > 0 ? n : default_n_threads();
-    if (threadpool) ggml_threadpool_free(threadpool);
+    const int want = n > 0 ? n : default_n_threads();
+    if (threadpool && want == n_threads) return;
+    n_threads = want;
     ggml_threadpool_params p = ggml_threadpool_params_default(n_threads);
+    ggml_threadpool_t old = threadpool;
     threadpool = ggml_threadpool_new(&p);
     ggml_backend_cpu_set_n_threads(backend, n_threads);
+    // the backend pauses the pool it is switching away from, so the old one is freed only after
     ggml_backend_cpu_set_threadpool(backend, threadpool);
+    if (old) ggml_threadpool_free(old);
 }
 
 const char * Backend::name() const {
