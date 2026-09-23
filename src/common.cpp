@@ -30,16 +30,21 @@ void Backend::init(bool prefer_gpu) {
         is_gpu = false;
     }
     alloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend));
-    if (!is_gpu) {
-        n_threads = default_n_threads();
-        ggml_backend_cpu_set_n_threads(backend, n_threads);
-    }
+    if (!is_gpu) set_threads(0);
 }
 
+// one persistent pool serves every graph, whichever thread computes it. openmp instead gives each
+// calling thread its own team, and in a server where requests land on different threads those
+// teams pile up past the cpu count, at which point libgomp parks idle threads between parallel
+// regions and every one of the thousands of small graphs per second pays a wake up
 void Backend::set_threads(int n) {
     if (is_gpu) return;
     n_threads = n > 0 ? n : default_n_threads();
+    if (threadpool) ggml_threadpool_free(threadpool);
+    ggml_threadpool_params p = ggml_threadpool_params_default(n_threads);
+    threadpool = ggml_threadpool_new(&p);
     ggml_backend_cpu_set_n_threads(backend, n_threads);
+    ggml_backend_cpu_set_threadpool(backend, threadpool);
 }
 
 const char * Backend::name() const {
@@ -49,8 +54,10 @@ const char * Backend::name() const {
 void Backend::free() {
     if (alloc) ggml_gallocr_free(alloc);
     if (backend) ggml_backend_free(backend);
+    if (threadpool) ggml_threadpool_free(threadpool);
     alloc = nullptr;
     backend = nullptr;
+    threadpool = nullptr;
 }
 
 void KVCache::init(Backend & be, int n_layer, int hd, int nkv, int ms, int nb) {

@@ -16,6 +16,7 @@ struct Backend {
     ggml_backend_t backend = nullptr;
     ggml_gallocr_t alloc = nullptr;
     bool is_gpu = false;
+    ggml_threadpool_t threadpool = nullptr; // cpu only
     int n_threads = 0; // cpu threads in effect, 0 on gpu
 
     void init(bool prefer_gpu);

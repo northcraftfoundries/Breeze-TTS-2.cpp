@@ -25,10 +25,10 @@ set(GGML_VULKAN ${BREEZE_VULKAN} CACHE BOOL "" FORCE)
 set(GGML_CUDA ${BREEZE_CUDA} CACHE BOOL "" FORCE)
 set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-if(MINGW)
-    # libgomp has no static build here, and it would leak into the shared library
-    set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
-endif()
+# ggml's own thread pool rather than openmp: openmp keeps a thread team per calling thread, and
+# with requests arriving on different server threads those teams outgrow the cpu count and stall
+# every graph (see Backend::set_threads). it also avoids libgomp, which has no static build on mingw
+set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/ggml)
 
 set(BREEZE_SOURCES
