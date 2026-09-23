@@ -129,8 +129,9 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
     const bool has_ref = !ref.codes.empty() && !ref.text.empty();
     const bool use_cfg = req.cfg_scale != 1.0f;
 
-    // the reference only changes in GenSession::begin and where speak adopts the opening piece,
-    // and both clear the prefix when it does, so an empty prefix is exactly a stale one
+    // the reference only changes in GenSession::begin, which clears the prefix when it differs,
+    // and where speak adopts the opening piece. that one replaces an empty reference, which never
+    // builds a prefix, so there is nothing to clear. either way an empty prefix is exactly a stale one
     if (has_ref && prefix.len == 0) build_prefix(m, ref, prefix, tm);
     const int pre_len = has_ref ? prefix.len : 0;
 
@@ -251,28 +252,34 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
 }
 
 void GenSession::begin(BreezeModel & m, MimiCodec & codec, const GenRequest & req, GenTimings * tm) {
-    // a new session can bring a new model, voice or reference, so the old prefix never applies
-    m_prefix = PromptPrefix();
+    std::vector<int> codes;
+    int frames = 0;
+    std::string text;
+    if (!req.ref_codes.empty() && req.ref_frames > 0 && !req.ref_text.empty()) {
+        codes = req.ref_codes;
+        frames = req.ref_frames;
+        text = req.ref_text;
+    } else if (!req.ref_audio.empty() && !req.ref_text.empty()) {
+        const auto t0 = std::chrono::steady_clock::now();
+        codes = codec.encode(req.ref_audio, frames);
+        text = req.ref_text;
+        if (tm) tm->encode_ref =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    }
+
+    // a client that restarts per utterance with the same voice keeps its prefix, which is the
+    // whole reference prefill. anything the prefix was built from changing throws it away
+    if (m_model != &m || m_codes != codes || m_frames != frames || m_text != text)
+        m_prefix = PromptPrefix();
+
     m_model = &m;
     m_codec = &codec;
     m_req = req;
     m_piece = 0;
     m_start = std::chrono::steady_clock::now();
-    m_codes.clear();
-    m_frames = 0;
-    m_text.clear();
-
-    if (!req.ref_codes.empty() && req.ref_frames > 0 && !req.ref_text.empty()) {
-        m_codes = req.ref_codes;
-        m_frames = req.ref_frames;
-        m_text = req.ref_text;
-    } else if (!req.ref_audio.empty() && !req.ref_text.empty()) {
-        const auto t0 = std::chrono::steady_clock::now();
-        m_codes = codec.encode(req.ref_audio, m_frames);
-        m_text = req.ref_text;
-        if (tm) tm->encode_ref =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    }
+    m_codes = std::move(codes);
+    m_frames = frames;
+    m_text = std::move(text);
 }
 
 bool GenSession::speak(const std::string & text, const AudioCallback & cb, GenTimings * tm) {
@@ -289,13 +296,11 @@ bool GenSession::speak(const std::string & text, const AudioCallback & cb, GenTi
     const bool ok = generate_chunk(*m_model, *m_codec, m_req, text, anchor, m_prefix,
                                    (uint32_t) m_req.seed + m_piece, cb, t, m_start, made);
     m_piece++;
-    // the opening piece stands in as the reference when there was no clip to clone. that changes
-    // the reference itself, so the prefix built for the old (empty) one is stale
+    // the opening piece stands in as the reference when there was no clip to clone
     if (ok && m_codes.empty() && made.n_frames > 0) {
         m_codes = std::move(made.codes);
         m_frames = made.n_frames;
         m_text = made.text;
-        m_prefix = PromptPrefix();
     }
     return ok;
 }

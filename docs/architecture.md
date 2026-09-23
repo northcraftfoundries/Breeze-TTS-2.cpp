@@ -141,15 +141,17 @@ each branch's fresh cache before prefilling only the tail. Because it lives in
 the session, one prefill serves both CFG branches, every piece of long text and
 every piece of a streaming session. It is rebuilt whenever the reference can
 have changed: once in voice design when the first piece becomes the reference,
-and whenever the session begins again, since `GenSession::begin` clears it
-along with everything else the old session held. The result is mathematically
-the same, but not always bit identical. On CPU the prefix positions' attention
-now sums over the prefix's keys only instead of the whole prompt, and ggml's
-F32 dot product adds the part past the last 32-wide SIMD block in a different
-order, so results match bit for bit only when the prefix length is a multiple
-of 32; on GPU the tail prefill is a smaller batch, which can pick a different
-matmul kernel, so small differences come from that instead. Either way it is
-rounding, not a change in what is computed.
+and when the session begins again with a different model or reference, which
+`GenSession::begin` checks against the old session's. Beginning again with the
+same voice keeps the prefix, so a client that sends `start` per utterance pays
+the reference prefill once. The result is mathematically the same, but not
+always bit identical. On CPU the prefix positions' attention now sums over the
+prefix's keys only instead of the whole prompt, and ggml's F32 dot product adds
+the part past the last full SIMD block in a different order, so results match
+bit for bit only when the prefix length is a multiple of the CPU's F32 SIMD step
+(32 floats with AVX2, 64 with AVX-512); on GPU the tail prefill is a smaller
+batch, which can pick a different matmul kernel, so small differences come from
+that instead. Either way it is rounding, not a change in what is computed.
 
 Measured end to end for voice direction with a cloned reference on an RTX 3060:
 

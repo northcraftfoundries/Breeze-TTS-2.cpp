@@ -82,8 +82,9 @@ void generate(BreezeModel & m, MimiCodec & codec, const GenRequest & req, const 
 
 // the reference half of the prompt, already run through the backbone. it is the same for both cfg
 // branches and every piece, so it is prefilled once and its kv rows copied into each new cache.
-// GenSession clears this whenever the reference itself can change, so an empty len is enough to
-// know it needs rebuilding; no key to compare against the current reference is kept
+// GenSession::begin clears it when the model or the reference differs from the last session's.
+// the only other change is voice design adopting its first piece, and with no reference before
+// that no prefix was ever built, so an empty len is enough to know it needs rebuilding
 struct PromptPrefix {
     int len = 0;            // positions it covers, 0 means not built yet
     std::vector<std::vector<uint8_t>> kv; // KVCache::save rows
