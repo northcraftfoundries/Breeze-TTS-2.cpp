@@ -18,6 +18,13 @@
 #endif
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX // windows.h's min/max macros shadow std::min/std::max used below
+#endif
+#if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0A00
+#undef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00 // GetSystemCpuSetInformation needs Windows 10+
+#endif
 #include <windows.h>
 #endif
 
