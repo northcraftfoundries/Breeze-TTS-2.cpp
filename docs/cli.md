@@ -29,7 +29,7 @@ breeze-cli <model.gguf> --text <text> [options]
 | `--chunk-max <n>` | `25` | Frames the chunk ramps up to. |
 | `--timings` | off | Print a stage by stage latency breakdown. |
 | `--cpu` | off | Force the CPU backend. |
-| `--threads <n>` | auto | CPU threads. `0` or omitted uses half the available CPUs, or one per pinned CPU. |
+| `--threads <n>` | auto | CPU threads. `0` or omitted uses half the available CPUs (at least 4, or all of them if fewer), or one per pinned CPU. |
 | `--cpus <list>` | none | Pin the process to these logical CPUs, e.g. `0-15` or `0,2,4-7`. Mutually exclusive with `--pcores`. |
 | `--pcores` | off | Pin the process to the performance cores (auto detected). Mutually exclusive with `--cpus`. |
 | `-h`, `--help` | | Print usage. |

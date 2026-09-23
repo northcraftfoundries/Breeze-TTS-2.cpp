@@ -1,4 +1,5 @@
 #include "breeze/common.h"
+#include "breeze/cpu_affinity.h"
 #include "ggml-cpu.h"
 
 #include <algorithm>
@@ -6,26 +7,17 @@
 #include <cstring>
 #include <thread>
 
-#ifdef __linux__
-#include <sched.h>
-#endif
-
 namespace breeze {
 
 // default cpu thread count. SMT siblings share a core and this workload is memory
-// bandwidth bound, so hyperthreads don't add throughput; halve whatever we count.
-// isolated here since the main session will revise this default after a benchmark sweep.
+// bandwidth bound, so hyperthreads add little; use half of whatever the process can run
+// on. floored at ggml's old default of 4 so a small, non-SMT machine doesn't end up with
+// fewer threads than it had before this default existed.
 static int default_n_threads() {
-    int n = 0;
-#ifdef __linux__
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
-        n = CPU_COUNT(&set);
-    }
-#endif
+    int n = process_cpu_count();
     if (n <= 0) n = (int) std::thread::hardware_concurrency();
-    return std::max(1, n / 2);
+    if (n <= 0) n = 1;
+    return std::max(std::min(n, 4), n / 2);
 }
 
 void Backend::init(bool prefer_gpu) {

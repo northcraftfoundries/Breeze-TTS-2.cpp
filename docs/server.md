@@ -37,7 +37,7 @@ breeze-server <model.gguf> [--host H] [--port P] [--webui] [--cpu]
 | `--voices-dir` | `voices` | Folder of saved `.breeze` voices to load at startup. See [voices.md](voices.md). |
 | `--ws-port` | HTTP port + 1 | Port for streaming sessions. `-1` disables it. See [websocket.md](websocket.md). |
 | `--split-chars` | `600` | Default length long text is broken up at. `0` sends the whole thing through in one pass. A request can still override it. |
-| `--threads` | auto | CPU threads. `0` or omitted uses half the available CPUs, or one per pinned CPU. |
+| `--threads` | auto | CPU threads. `0` or omitted uses half the available CPUs (at least 4, or all of them if fewer), or one per pinned CPU. |
 | `--cpus` | none | Pin the process to these logical CPUs, e.g. `0-15` or `0,2,4-7`. Mutually exclusive with `--pcores`. |
 | `--pcores` | off | Pin the process to the performance cores (auto detected). Mutually exclusive with `--cpus`. |
 
