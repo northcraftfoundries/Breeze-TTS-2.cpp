@@ -21,15 +21,22 @@ static ggml_tensor * build_audio_embed(ggml_context * ctx, BreezeModel & m, ggml
     return ggml_reshape_2d(ctx, summed, hidden, n);
 }
 
-std::vector<float> audio_embed_forward(BreezeModel & m, const std::vector<int> & codes, int n) {
+// row per code in the shared audio_embd table: codebook cb's vocab occupies rows
+// [cb*audio_vocab_size, (cb+1)*audio_vocab_size), and codes are frame-major [f*nc + cb]
+static std::vector<int32_t> audio_embed_rows(BreezeModel & m, const std::vector<int> & codes, int n) {
     const int nc = m.cfg.num_codebooks;
     const int vs = m.cfg.audio_vocab_size;
-    Graph g(256);
     std::vector<int32_t> idx((size_t) nc * n);
     for (int f = 0; f < n; f++)
         for (int cb = 0; cb < nc; cb++)
             idx[(size_t) f * nc + cb] = codes[(size_t) f * nc + cb] + cb * vs;
-    ggml_tensor * t = g.input_i32(idx, nc * n);
+    return idx;
+}
+
+std::vector<float> audio_embed_forward(BreezeModel & m, const std::vector<int> & codes, int n) {
+    const int nc = m.cfg.num_codebooks;
+    Graph g(256);
+    ggml_tensor * t = g.input_i32(audio_embed_rows(m, codes, n), nc * n);
     ggml_tensor * out = build_audio_embed(g.ctx, m, t, n);
     g.compute(m.backend, out);
     return tensor_to_f32(out);
@@ -51,6 +58,8 @@ static ggml_tensor * bb_layer(ggml_context * ctx, BreezeModel & m, Graph & g,
                               ggml_tensor * pos, const std::vector<ggml_tensor *> & masks, int n) {
     const BackboneConfig & c = m.cfg.bb;
     const std::string p = "bb.blk." + std::to_string(il);
+    // one state may take any number of tokens, but several states take exactly one each
+    GGML_ASSERT(states.size() == 1 || n == (int) states.size());
 
     ggml_tensor * res = x;
     ggml_tensor * h = rms_norm(ctx, x, m.w(p + ".attn_norm.weight"), c.rms_eps);
@@ -119,14 +128,14 @@ std::vector<StepOut> backbone_step(BreezeModel & m, const std::vector<BackboneSt
                                    const std::vector<int> & frame) {
     const BackboneConfig & c = m.cfg.bb;
     const int nc = m.cfg.num_codebooks;
-    const int vs = m.cfg.audio_vocab_size;
     const int nb = (int) states.size();
-    // each branch adds its own cache append and attention nodes on top of the shared layer
-    Graph g(8192 * nb);
+    // one frame holds a code per codebook; anything shorter means the caller built the frame wrong
+    GGML_ASSERT((int) frame.size() >= m.cfg.num_codebooks);
+    // the shared layer stack fits in 8192 nodes; each extra branch adds its own cache-append and
+    // attention nodes, roughly 20 per layer
+    Graph g(8192 + 1024 * nb);
 
-    std::vector<int32_t> idx(nc);
-    for (int cb = 0; cb < nc; cb++) idx[cb] = frame[cb] + cb * vs;
-    ggml_tensor * x = build_audio_embed(g.ctx, m, g.input_i32(idx, nc), 1);
+    ggml_tensor * x = build_audio_embed(g.ctx, m, g.input_i32(audio_embed_rows(m, frame, 1), nc), 1);
     // every branch is fed the same frame
     x = ggml_repeat_4d(g.ctx, x, c.hidden, nb, 1, 1);
 
