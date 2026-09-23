@@ -6,7 +6,8 @@
 namespace breeze {
 
 // parses "0-15" or "0,2,4-7" style specs into sorted, de-duplicated cpu ids.
-// rejects empty input, malformed tokens, negative ids and descending ranges.
+// rejects empty input, malformed tokens, negative ids, descending ranges and ids past the
+// platform limit (checked before a range is expanded, so a huge range can't loop or allocate).
 bool parse_cpu_list(const std::string & spec, std::vector<int> & cpus, std::string & err);
 
 // logical cpu ids of the performance cores on a hybrid cpu, sorted.

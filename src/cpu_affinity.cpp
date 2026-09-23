@@ -30,6 +30,19 @@
 
 namespace breeze {
 
+// largest cpu id we'll accept, checked before a range is expanded so something like
+// "0-2147483647" fails immediately instead of looping or allocating. matches the limit
+// pin_process itself enforces per platform.
+static int max_cpu_id() {
+#ifdef __linux__
+    return CPU_SETSIZE - 1;
+#elif defined(_WIN32)
+    return 63;
+#else
+    return 1023;
+#endif
+}
+
 bool parse_cpu_list(const std::string & spec, std::vector<int> & cpus, std::string & err) {
     cpus.clear();
     if (spec.empty()) {
@@ -53,11 +66,11 @@ bool parse_cpu_list(const std::string & spec, std::vector<int> & cpus, std::stri
 
     std::vector<int> out;
     size_t pos = 0;
-    while (pos < spec.size()) {
+    for (;;) {
         const size_t comma = spec.find(',', pos);
         const std::string tok = spec.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
-        pos = comma == std::string::npos ? spec.size() : comma + 1;
         if (tok.empty()) {
+            // catches a leading/doubled comma as well as one trailing off the end, e.g. "1,"
             err = "empty entry in cpu list '" + spec + "'";
             return false;
         }
@@ -68,11 +81,21 @@ bool parse_cpu_list(const std::string & spec, std::vector<int> & cpus, std::stri
                 err = "invalid cpu id '" + tok + "' in '" + spec + "'";
                 return false;
             }
+            if (v > max_cpu_id()) {
+                err = "cpu id " + std::to_string(v) + " is out of range (max " + std::to_string(max_cpu_id()) + ")";
+                return false;
+            }
             out.push_back(v);
         } else {
             int lo, hi;
             if (!parse_int(tok.substr(0, dash), lo) || !parse_int(tok.substr(dash + 1), hi)) {
                 err = "invalid range '" + tok + "' in '" + spec + "'";
+                return false;
+            }
+            // bounds before the descending check and well before expansion, so a huge
+            // range like "0-2147483647" never turns into a loop that fills memory
+            if (lo > max_cpu_id() || hi > max_cpu_id()) {
+                err = "cpu id " + std::to_string(std::max(lo, hi)) + " is out of range (max " + std::to_string(max_cpu_id()) + ")";
                 return false;
             }
             if (hi < lo) {
@@ -81,6 +104,8 @@ bool parse_cpu_list(const std::string & spec, std::vector<int> & cpus, std::stri
             }
             for (int v = lo; v <= hi; v++) out.push_back(v);
         }
+        if (comma == std::string::npos) break;
+        pos = comma + 1;
     }
 
     std::sort(out.begin(), out.end());
@@ -196,8 +221,8 @@ bool pin_process(const std::vector<int> & cpus, std::string & err) {
     cpu_set_t set;
     CPU_ZERO(&set);
     for (int cpu : cpus) {
-        if (cpu < 0 || cpu >= CPU_SETSIZE) {
-            err = "cpu id " + std::to_string(cpu) + " is out of range (max " + std::to_string(CPU_SETSIZE - 1) + ")";
+        if (cpu < 0 || cpu > max_cpu_id()) {
+            err = "cpu id " + std::to_string(cpu) + " is out of range (max " + std::to_string(max_cpu_id()) + ")";
             return false;
         }
         CPU_SET(cpu, &set);
@@ -210,8 +235,8 @@ bool pin_process(const std::vector<int> & cpus, std::string & err) {
 #elif defined(_WIN32)
     DWORD_PTR mask = 0;
     for (int cpu : cpus) {
-        if (cpu < 0 || cpu >= 64) {
-            err = "cpu id " + std::to_string(cpu) + " is out of range (max 63 on Windows)";
+        if (cpu < 0 || cpu > max_cpu_id()) {
+            err = "cpu id " + std::to_string(cpu) + " is out of range (max " + std::to_string(max_cpu_id()) + ")";
             return false;
         }
         mask |= (DWORD_PTR(1) << cpu);
