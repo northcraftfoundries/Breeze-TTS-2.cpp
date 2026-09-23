@@ -44,6 +44,10 @@ cmake -B build-cpu -G Ninja -DCMAKE_BUILD_TYPE=Release -DBREEZE_VULKAN=OFF
 cmake --build build-cpu -j
 ```
 
+Run the unit tests with `ctest --test-dir build` (or `build-cpu`, etc.). The
+`backbone_step` test also needs a real model: set `BREEZE_TEST_MODEL=<path to a
+gguf>`, otherwise it is skipped.
+
 ## CMake options
 
 | Option | Default | Effect |
@@ -53,6 +57,7 @@ cmake --build build-cpu -j
 | `BREEZE_BUILD_CLI` | `ON` | Build `breeze-cli`. |
 | `BREEZE_BUILD_SERVER` | `ON` | Build `breeze-server`. |
 | `BREEZE_BUILD_SHARED` | `ON` | Build the shared C library. |
+| `BREEZE_BUILD_TESTS` | `ON` | Build the unit tests and register them with ctest. |
 
 ### CUDA is slower here, and it is worth knowing why
 

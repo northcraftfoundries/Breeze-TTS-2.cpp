@@ -15,6 +15,7 @@ option(BREEZE_CUDA "Build ggml with the CUDA backend" OFF)
 option(BREEZE_BUILD_CLI "Build the command line app" ON)
 option(BREEZE_BUILD_SERVER "Build the HTTP server" ON)
 option(BREEZE_BUILD_SHARED "Build the shared C library" ON)
+option(BREEZE_BUILD_TESTS "Build unit tests" ON)
 
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ggml/CMakeLists.txt")
     message(FATAL_ERROR "third_party/ggml is missing. Run: git submodule update --init --recursive")
@@ -105,4 +106,15 @@ if(BREEZE_BUILD_SERVER)
     endif()
     find_package(Threads REQUIRED)
     target_link_libraries(breeze-server PRIVATE Threads::Threads)
+endif()
+
+if(BREEZE_BUILD_TESTS)
+    enable_testing()
+
+    # needs a real gguf, so it skips itself (exit 77) unless BREEZE_TEST_MODEL is set; ctest
+    # inherits the environment, so setting it before invoking ctest is enough
+    add_executable(test_backbone_step tests/test_backbone_step.cpp)
+    target_link_libraries(test_backbone_step PRIVATE breeze_core)
+    add_test(NAME backbone_step COMMAND test_backbone_step)
+    set_tests_properties(backbone_step PROPERTIES SKIP_RETURN_CODE 77)
 endif()
