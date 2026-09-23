@@ -45,8 +45,8 @@ cmake --build build-cpu -j
 ```
 
 Run the unit tests with `ctest --test-dir build` (or `build-cpu`, etc.). The
-`backbone_step` test also needs a real model: set `BREEZE_TEST_MODEL=<path to a
-gguf>`, otherwise it is skipped.
+`backbone_step` and `prefix_cache` tests also need a real model: set
+`BREEZE_TEST_MODEL=<path to a gguf>`, otherwise they are skipped.
 
 ## CMake options
 
