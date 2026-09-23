@@ -1,5 +1,6 @@
 // plain-main unit test for cpu_affinity.cpp; no test framework, none of this needs one.
 #include "breeze/cpu_affinity.h"
+#include "test_util.h"
 
 #include <cstdio>
 #include <string>
@@ -10,18 +11,6 @@
 #endif
 
 using namespace breeze;
-
-static int g_failures = 0;
-
-// prints the failing expression and line rather than just "false", so a failure
-// says what broke without needing a debugger
-#define CHECK(cond) \
-    do { \
-        if (!(cond)) { \
-            fprintf(stderr, "CHECK failed: %s (line %d)\n", #cond, __LINE__); \
-            g_failures++; \
-        } \
-    } while (0)
 
 static void expect_parse_ok(const char * spec, const std::vector<int> & expected) {
     std::vector<int> cpus;
