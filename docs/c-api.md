@@ -164,9 +164,11 @@ int breeze_pin_cpus(const char * spec);
 ```
 
 Pins to a set of logical CPUs before `breeze_init` loads the model. On Linux
-this covers the calling thread and every thread it starts afterwards, which
-includes the compute threads `breeze_init` creates, so call it before
-`breeze_init`, on the thread that will call it. On
+this covers the calling thread and every thread it starts afterwards.
+`breeze_init` creates the compute threads, and the thread calling
+`breeze_generate` does part of every graph itself, so call it before
+`breeze_init`, and generate from that thread or one it starts later. Pinning
+after `breeze_init` leaves the existing compute threads where they were. On
 Windows it pins the whole process. Either way it affects the host process, not
 just the library. `spec` is a cpu list like `"0-15"` or `"0,2,4-7"`, or the literal
 `"pcores"` to auto detect the performance cores on a hybrid CPU. It also sets

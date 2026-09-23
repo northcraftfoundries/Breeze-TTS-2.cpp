@@ -48,7 +48,8 @@ void Backend::set_threads(int n) {
     ggml_threadpool_t old = threadpool;
     threadpool = ggml_threadpool_new(&p);
     ggml_backend_cpu_set_n_threads(backend, n_threads);
-    // the backend pauses the pool it is switching away from, so the old one is freed only after
+    // the backend pauses the pool it is switching away from, so the old one is freed only after the
+    // backend has moved to the new one
     ggml_backend_cpu_set_threadpool(backend, threadpool);
     if (old) ggml_threadpool_free(old);
 }

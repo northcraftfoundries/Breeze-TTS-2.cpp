@@ -57,9 +57,10 @@ BREEZE_API int breeze_generate_wav(breeze_context * ctx, const breeze_request * 
 BREEZE_API int breeze_set_threads(breeze_context * ctx, int n_threads);
 
 // pins to a cpu list, e.g. "0-15", or the literal "pcores" to auto detect the performance
-// cores. on linux this pins the calling thread and every thread it starts afterwards, and
-// breeze_init starts the compute threads, so call it before breeze_init on the thread that
-// will call it;
+// cores. on linux this pins the calling thread and every thread it starts afterwards. breeze_init
+// starts the compute threads and the thread calling breeze_generate does part of every graph
+// itself, so call it before breeze_init, and generate from that thread or one it starts later;
+// pinning after breeze_init leaves the existing compute threads where they were.
 // on windows it pins the whole process. either way it affects the host process, not just
 // this library. it also sets the default thread count for contexts breeze_init creates
 // afterwards to the number of cpus actually pinned (breeze_set_threads still overrides) --

@@ -68,7 +68,7 @@ early and growing to 25 frames on a GPU, or 60 on the CPU, so the vocoder stays
 efficient. On a GPU that keeps time to first audio near 350 ms while
 generation as a whole runs comfortably faster than realtime. On the CPU
 generation runs slower than realtime (about 0.19 s of compute per 80 ms frame
-at Q8_0 on an i9-12900K), with time to first audio around 1 s.
+at Q8_0 on an i9-12900K), with time to first audio around 1.2 s.
 
 `--chunk-first` and `--chunk-max` tune that ramp, and pairing them with
 `--timings` is the easiest way to find good values for a given device before
