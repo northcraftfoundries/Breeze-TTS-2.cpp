@@ -139,11 +139,17 @@ depend on anything that follows. `GenSession` prefills the prefix once, keeps
 those rows on the host (about 230 KB per prefix position), and copies them into
 each branch's fresh cache before prefilling only the tail. Because it lives in
 the session, one prefill serves both CFG branches, every piece of long text and
-every piece of a streaming session. It is rebuilt only when the reference text
-or codes change, as happens once in voice design when the first piece becomes
-the reference. The result is mathematically the same, but not always bit
-identical: the attention sums over a different number of keys, and ggml's F32
-dot product adds the part past the last full SIMD block in a different order.
+every piece of a streaming session. It is rebuilt whenever the reference can
+have changed: once in voice design when the first piece becomes the reference,
+and whenever the session begins again, since `GenSession::begin` clears it
+along with everything else the old session held. The result is mathematically
+the same, but not always bit identical. On CPU the prefix positions' attention
+now sums over the prefix's keys only instead of the whole prompt, and ggml's
+F32 dot product adds the part past the last 32-wide SIMD block in a different
+order, so results match bit for bit only when the prefix length is a multiple
+of 32; on GPU the tail prefill is a smaller batch, which can pick a different
+matmul kernel, so small differences come from that instead. Either way it is
+rounding, not a change in what is computed.
 
 Measured end to end for voice direction with a cloned reference on an RTX 3060:
 
@@ -153,8 +159,9 @@ Measured end to end for voice direction with a cloned reference on an RTX 3060:
 | 4 | 14.58 ms | 40.76 ms | 11.06 ms | 66.40 ms | 1.20x |
 
 These figures predate batching the backbone decode step into one graph, which
-roughly halved the `cfg_scale` 4 backbone cost (measured on an RTX card with
-Q8_0: 13-15 -> 7.0-7.3 ms/frame).
+roughly halved the `cfg_scale` 4 backbone cost (measured on an RTX 4090 with
+Q8_0: cfg 1 5.6-6.0 ms/frame, cfg 4 13-15 -> 7.0-7.3 ms/frame). The 4090 numbers
+are a different card from the table above, not a comparison against it.
 
 Cloning adds a one off reference encode of roughly 650 ms, which lands on time to
 first audio and not on throughput.
