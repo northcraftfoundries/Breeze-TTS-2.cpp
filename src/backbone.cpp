@@ -35,11 +35,22 @@ std::vector<float> audio_embed_forward(BreezeModel & m, const std::vector<int> &
     return tensor_to_f32(out);
 }
 
-static ggml_tensor * bb_layer(ggml_context * ctx, BreezeModel & m, Graph & g, BackboneState & st,
-                              ggml_tensor * x, int il, ggml_tensor * pos, ggml_tensor * mask, int n) {
+// append this branch's k/v to its own cache and attend over everything it has seen
+static ggml_tensor * bb_attend(ggml_context * ctx, BreezeModel & m, Graph & g, BackboneState & st, int il,
+                               ggml_tensor * q, ggml_tensor * k, ggml_tensor * v, ggml_tensor * mask) {
+    const BackboneConfig & c = m.cfg.bb;
+    const float scale = 1.0f / std::sqrt((float) c.head_dim);
+    ggml_tensor * kfull = cache_append(ctx, g, st.kv.k[il], k, st.pos);
+    ggml_tensor * vfull = cache_append(ctx, g, st.kv.v[il], v, st.pos);
+    return attention(ctx, q, kfull, vfull, mask, scale, c.n_head, c.n_kv_head);
+}
+
+// one state takes all n tokens; several states take one token each, column b belonging to states[b]
+static ggml_tensor * bb_layer(ggml_context * ctx, BreezeModel & m, Graph & g,
+                              const std::vector<BackboneState *> & states, ggml_tensor * x, int il,
+                              ggml_tensor * pos, const std::vector<ggml_tensor *> & masks, int n) {
     const BackboneConfig & c = m.cfg.bb;
     const std::string p = "bb.blk." + std::to_string(il);
-    const float scale = 1.0f / std::sqrt((float) c.head_dim);
 
     ggml_tensor * res = x;
     ggml_tensor * h = rms_norm(ctx, x, m.w(p + ".attn_norm.weight"), c.rms_eps);
@@ -52,10 +63,19 @@ static ggml_tensor * bb_layer(ggml_context * ctx, BreezeModel & m, Graph & g, Ba
     q = ggml_rope_ext(ctx, q, pos, nullptr, c.head_dim, GGML_ROPE_TYPE_NEOX, 0, c.rope_theta, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
     k = ggml_rope_ext(ctx, k, pos, nullptr, c.head_dim, GGML_ROPE_TYPE_NEOX, 0, c.rope_theta, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
 
-    ggml_tensor * kfull = cache_append(ctx, g, st.kv.k[il], k, st.pos);
-    ggml_tensor * vfull = cache_append(ctx, g, st.kv.v[il], v, st.pos);
-
-    ggml_tensor * a = attention(ctx, q, kfull, vfull, mask, scale, c.n_head, c.n_kv_head);
+    ggml_tensor * a = nullptr;
+    if (states.size() == 1) {
+        a = bb_attend(ctx, m, g, *states[0], il, q, k, v, masks[0]);
+    } else {
+        // the projections above ran on every branch at once; attention can't, each cache is its own length
+        for (size_t b = 0; b < states.size(); b++) {
+            ggml_tensor * qb = ggml_view_3d(ctx, q, c.head_dim, c.n_head, 1, q->nb[1], q->nb[2], b * q->nb[2]);
+            ggml_tensor * kb = ggml_view_3d(ctx, k, c.head_dim, c.n_kv_head, 1, k->nb[1], k->nb[2], b * k->nb[2]);
+            ggml_tensor * vb = ggml_view_3d(ctx, v, c.head_dim, c.n_kv_head, 1, v->nb[1], v->nb[2], b * v->nb[2]);
+            ggml_tensor * ab = bb_attend(ctx, m, g, *states[b], il, qb, kb, vb, masks[b]);
+            a = a ? ggml_concat(ctx, a, ab, 1) : ab;
+        }
+    }
     a = linear(ctx, m.w(p + ".attn_output.weight"), a);
     x = ggml_add(ctx, res, a);
 
@@ -77,7 +97,7 @@ StepOut backbone_run(BreezeModel & m, BackboneState & st, const std::vector<floa
     std::vector<float> mask_v = build_causal_mask(n, total, st.pos, 0);
     ggml_tensor * mask = g.input_f32(mask_v, total, n);
 
-    for (int il = 0; il < c.n_layer; il++) x = bb_layer(g.ctx, m, g, st, x, il, pos, mask, n);
+    for (int il = 0; il < c.n_layer; il++) x = bb_layer(g.ctx, m, g, { &st }, x, il, pos, { mask }, n);
     x = rms_norm(g.ctx, x, m.w("bb.output_norm.weight"), c.rms_eps);
 
     ggml_tensor * last = ggml_view_2d(g.ctx, x, c.hidden, 1, x->nb[1], (size_t) (n - 1) * x->nb[1]);
@@ -92,6 +112,50 @@ StepOut backbone_run(BreezeModel & m, BackboneState & st, const std::vector<floa
     out.hidden = tensor_to_f32(last);
     out.logits = tensor_to_f32(logits);
     st.pos += n;
+    return out;
+}
+
+std::vector<StepOut> backbone_step(BreezeModel & m, const std::vector<BackboneState *> & states,
+                                   const std::vector<int> & frame) {
+    const BackboneConfig & c = m.cfg.bb;
+    const int nc = m.cfg.num_codebooks;
+    const int vs = m.cfg.audio_vocab_size;
+    const int nb = (int) states.size();
+    // each branch adds its own cache append and attention nodes on top of the shared layer
+    Graph g(8192 * nb);
+
+    std::vector<int32_t> idx(nc);
+    for (int cb = 0; cb < nc; cb++) idx[cb] = frame[cb] + cb * vs;
+    ggml_tensor * x = build_audio_embed(g.ctx, m, g.input_i32(idx, nc), 1);
+    // every branch is fed the same frame
+    x = ggml_repeat_4d(g.ctx, x, c.hidden, nb, 1, 1);
+
+    std::vector<int32_t> pos_i(nb);
+    std::vector<ggml_tensor *> masks(nb);
+    for (int b = 0; b < nb; b++) {
+        const int p = states[b]->pos;
+        pos_i[b] = p;
+        masks[b] = g.input_f32(build_causal_mask(1, p + 1, p, 0), p + 1, 1);
+    }
+    ggml_tensor * pos = g.input_i32(pos_i, nb);
+
+    for (int il = 0; il < c.n_layer; il++) x = bb_layer(g.ctx, m, g, states, x, il, pos, masks, nb);
+    x = rms_norm(g.ctx, x, m.w("bb.output_norm.weight"), c.rms_eps);
+    ggml_tensor * logits = linear(g.ctx, m.w("bb.lm_head.weight"), x);
+
+    ggml_set_output(x);
+    g.write(x);
+    g.compute(m.backend, logits);
+
+    const std::vector<float> hidden = tensor_to_f32(x);
+    const std::vector<float> all_logits = tensor_to_f32(logits);
+    const size_t n_logits = all_logits.size() / nb;
+    std::vector<StepOut> out(nb);
+    for (int b = 0; b < nb; b++) {
+        out[b].hidden.assign(hidden.begin() + (size_t) b * c.hidden, hidden.begin() + (size_t) (b + 1) * c.hidden);
+        out[b].logits.assign(all_logits.begin() + b * n_logits, all_logits.begin() + (b + 1) * n_logits);
+        states[b]->pos++;
+    }
     return out;
 }
 

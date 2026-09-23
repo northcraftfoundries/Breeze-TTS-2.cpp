@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <random>
+#include <utility>
 
 namespace breeze {
 
@@ -117,6 +118,9 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
     if (use_cfg) o_u = backbone_run(m, st_u, emb_u, total_u);
     tm.prefill += since(t0);
 
+    std::vector<BackboneState *> branches = { &st_c };
+    if (use_cfg) branches.push_back(&st_u);
+
     DepthRunner depth;
     depth.init(m, use_cfg ? 2 : 1);
 
@@ -187,9 +191,9 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
         hist.push_back(cb0);
 
         auto tb = clock_now();
-        std::vector<float> ae = audio_embed_forward(m, frame, 1);
-        o_c = backbone_run(m, st_c, ae, 1);
-        if (use_cfg) o_u = backbone_run(m, st_u, ae, 1);
+        std::vector<StepOut> o = backbone_step(m, branches, frame);
+        o_c = std::move(o[0]);
+        if (use_cfg) o_u = std::move(o[1]);
         tm.backbone += since(tb);
         comb = combine_logits(o_c.logits, o_u.logits, use_cfg, req.cfg_scale);
         cb0 = sample_token(comb, bp, rng, &hist, &suppress);
@@ -328,6 +332,9 @@ std::vector<float> convert_voice(BreezeModel & m, MimiCodec & codec, const std::
     StepOut o_u;
     if (use_cfg) o_u = backbone_run(m, st_u, emb_u, total_u);
 
+    std::vector<BackboneState *> branches = { &st_c };
+    if (use_cfg) branches.push_back(&st_u);
+
     DepthRunner depth;
     depth.init(m, use_cfg ? 2 : 1);
 
@@ -345,9 +352,9 @@ std::vector<float> convert_voice(BreezeModel & m, MimiCodec & codec, const std::
 
         const int * from = opt.feed_source ? &src_codes[(size_t) t * nc] : &out[(size_t) t * nc];
         std::vector<int> frame(from, from + nc);
-        std::vector<float> ae = audio_embed_forward(m, frame, 1);
-        o_c = backbone_run(m, st_c, ae, 1);
-        if (use_cfg) o_u = backbone_run(m, st_u, ae, 1);
+        std::vector<StepOut> o = backbone_step(m, branches, frame);
+        o_c = std::move(o[0]);
+        if (use_cfg) o_u = std::move(o[1]);
         if (t % 25 == 0) { printf("\rconverting %d/%d frames", t, src_T); fflush(stdout); }
     }
     printf("\rconverted %d frames        \n", src_T);

@@ -124,9 +124,11 @@ contiguous, so the cache append is a single copy, and
 `build_branch_causal_mask` makes each query causal within its own branch and
 blind to the other.
 
-The backbone still runs its branches separately, because the conditioned and
-unconditioned prompts have different lengths and do not interleave cleanly. That
-is the remaining cost of guidance, worth about 6 ms per frame.
+The backbone prefill still runs its branches separately, because the conditioned
+and unconditioned prompts have different lengths and do not interleave cleanly.
+Each decode step after that runs both branches in one graph: the projections and
+FFN take both columns at once, so the weights are read once per frame, and only
+attention splits per branch, each over its own KV cache.
 
 Measured end to end for voice direction with a cloned reference on an RTX 3060:
 

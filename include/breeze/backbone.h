@@ -25,4 +25,9 @@ std::vector<float> audio_embed_forward(BreezeModel & m, const std::vector<int> &
 // run a chunk of inputs_embeds through the backbone, appending to the kv cache
 StepOut backbone_run(BreezeModel & m, BackboneState & st, const std::vector<float> & embeds, int n_tokens);
 
+// one decode step feeding the same frame (num_codebooks codes) to every branch in a single graph,
+// so the weights are read once however many branches there are. each branch keeps its own cache
+std::vector<StepOut> backbone_step(BreezeModel & m, const std::vector<BackboneState *> & states,
+                                   const std::vector<int> & frame);
+
 }
