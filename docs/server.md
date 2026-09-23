@@ -32,7 +32,7 @@ breeze-server <model.gguf> [--host H] [--port P] [--webui] [--cpu]
 | `--webui` | off | Also serve the browser UI at `/`. |
 | `--cpu` | off | Force the CPU backend instead of Vulkan. |
 | `--chunk-first` | `4` | Frames in the first streamed chunk. |
-| `--chunk-max` | `25` GPU, `60` CPU | Frames the chunk ramps up to. |
+| `--chunk-max` | `25` GPU, `60` CPU | Frames the chunk ramps up to. `0` picks for the backend. |
 | `--verbose` | off | Add a per stage timing breakdown after each request. |
 | `--voices-dir` | `voices` | Folder of saved `.breeze` voices to load at startup. See [voices.md](voices.md). |
 | `--ws-port` | HTTP port + 1 | Port for streaming sessions. `-1` disables it. See [websocket.md](websocket.md). |
@@ -130,6 +130,11 @@ still holds one chunk. Accumulate chunks until you are actually holding N second
 of audio, then play them back to back. The bundled UI does this and exposes N as
 the buffer slider.
 
+On the CPU generation is slower than realtime, so no client buffer prevents
+stalls: each chunk (up to 60 frames, 4.8 s of audio) arrives in one lump after
+roughly 11-12 s of compute. Either accept a stall per chunk or prebuffer the
+whole piece before starting playback.
+
 ### Tuning the chunk ramp
 
 Audio is vocoded in chunks of whole frames at 12.5 frames per second. The first
@@ -168,6 +173,9 @@ flushes far more often. It only affects the first chunk, so it costs nothing in
 throughput.
 
 Setting both flags to the same value disables the ramp and streams a fixed size.
+Setting only one behaves per backend, because the ceiling defaults differ: a
+`--chunk-first` above the GPU's 25 is capped there, while on the CPU it ramps
+up to 60.
 
 ### Summary
 
@@ -176,6 +184,8 @@ Setting both flags to the same value disables the ramp and streams a fixed size.
 - Buffer at least 1 s on the client, more if you raised `--chunk-max`.
 - Prebuffer by fill level, not by delay.
 - Check the real time factor first if it stutters no matter what you buffer.
+- On the CPU, generation itself is slower than realtime: no client buffer
+  prevents a stall, so either accept one per chunk or prebuffer the whole piece.
 
 ## `GET /health`
 

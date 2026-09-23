@@ -254,7 +254,8 @@ the only external dependency.
   time to first audio instead (about 1.9 s vs 1.3 s). Past about 3 it turns harsh.
 - The vocoder comes from the bundled `audio_tokenizer/`, not the Mimi codec sitting in the main
   checkpoint. The reference never uses that one at inference time.
-- Streaming decodes in 2 second chunks with 72 frames of left context, which matches the vocoder
+- Streaming decodes in growing chunks, up to 2 seconds on a GPU or 4.8 seconds on the CPU (see
+  [docs/cli.md](docs/cli.md)), with 72 frames of left context, which matches the vocoder
   transformer's attention window, so chunks decode the same as they would in a single pass.
 
 ## License

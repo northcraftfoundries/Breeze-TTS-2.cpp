@@ -26,7 +26,7 @@ breeze-cli <model.gguf> --text <text> [options]
 | `--split-chars <n>` | `600` | Split long text into pieces of about this many characters. `0` generates in one pass. |
 | `--output <wav>` | `output.wav` | Output path. |
 | `--chunk-first <n>` | `4` | Frames in the first streamed chunk. |
-| `--chunk-max <n>` | `25` GPU, `60` CPU | Frames the chunk ramps up to. |
+| `--chunk-max <n>` | `25` GPU, `60` CPU | Frames the chunk ramps up to. `0` picks for the backend. |
 | `--timings` | off | Print a stage by stage latency breakdown. |
 | `--cpu` | off | Force the CPU backend. |
 | `--threads <n>` | auto | CPU threads. `0` or omitted uses half the available CPUs (at least 4, or all of them if fewer), or one per pinned CPU. |
@@ -65,9 +65,10 @@ comparison.
 
 Audio is flushed in growing chunks, starting at 4 frames so playback can begin
 early and growing to 25 frames on a GPU, or 60 on the CPU, so the vocoder stays
-efficient. That keeps time
-to first audio near 350 ms while generation as a whole runs comfortably faster
-than realtime.
+efficient. On a GPU that keeps time to first audio near 350 ms while
+generation as a whole runs comfortably faster than realtime. On the CPU
+generation runs slower than realtime (about 0.19 s of compute per 80 ms frame
+at Q8_0 on an i9-12900K), with time to first audio around 1 s.
 
 `--chunk-first` and `--chunk-max` tune that ramp, and pairing them with
 `--timings` is the easiest way to find good values for a given device before
