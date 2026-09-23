@@ -26,10 +26,15 @@ static ggml_tensor * build_audio_embed(ggml_context * ctx, BreezeModel & m, ggml
 static std::vector<int32_t> audio_embed_rows(BreezeModel & m, const std::vector<int> & codes, int n) {
     const int nc = m.cfg.num_codebooks;
     const int vs = m.cfg.audio_vocab_size;
+    GGML_ASSERT(codes.size() >= (size_t) nc * n);
     std::vector<int32_t> idx((size_t) nc * n);
     for (int f = 0; f < n; f++)
-        for (int cb = 0; cb < nc; cb++)
-            idx[(size_t) f * nc + cb] = codes[(size_t) f * nc + cb] + cb * vs;
+        for (int cb = 0; cb < nc; cb++) {
+            const int code = codes[(size_t) f * nc + cb];
+            // an out of range code would silently read the next codebook's rows
+            GGML_ASSERT(code >= 0 && code < vs);
+            idx[(size_t) f * nc + cb] = code + cb * vs;
+        }
     return idx;
 }
 
@@ -129,11 +134,12 @@ std::vector<StepOut> backbone_step(BreezeModel & m, const std::vector<BackboneSt
     const BackboneConfig & c = m.cfg.bb;
     const int nc = m.cfg.num_codebooks;
     const int nb = (int) states.size();
-    // one frame holds a code per codebook; anything shorter means the caller built the frame wrong
-    GGML_ASSERT((int) frame.size() >= m.cfg.num_codebooks);
-    // the shared layer stack fits in 8192 nodes; each extra branch adds its own cache-append and
-    // attention nodes, roughly 20 per layer
-    Graph g(8192 + 1024 * nb);
+    GGML_ASSERT(nb >= 1);
+    // the frame embedding is built at the shared hidden size and fed straight into the backbone
+    GGML_ASSERT(m.cfg.hidden_size == c.hidden);
+    // the shared layer stack fits in 8192 nodes; every branch adds its own cache append and
+    // attention, about 20 nodes per layer
+    Graph g(8192 + 32 * c.n_layer * nb);
 
     ggml_tensor * x = build_audio_embed(g.ctx, m, g.input_i32(audio_embed_rows(m, frame, 1), nc), 1);
     // every branch is fed the same frame
