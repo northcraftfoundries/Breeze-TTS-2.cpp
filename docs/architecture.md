@@ -107,9 +107,10 @@ pad on the right. Causal transposed convolutions run the transpose then trim
 
 ## Classifier free guidance
 
-When `cfg_scale != 1` the text encoder, backbone and depth decoder all run twice,
-once on the conditioned prompt and once on a negative prompt that drops the
-instruction. Logits combine as:
+When `cfg_scale != 1` the model runs a conditioned prompt and a negative prompt
+that drops the instruction. The text encoder and the backbone prefill run once
+per branch; backbone decode and the depth decoder batch both branches into one
+graph per step, as described below. Logits combine as:
 
 $$\text{logits} = \text{uncond} + s \cdot (\text{cond} - \text{uncond})$$
 
@@ -136,6 +137,10 @@ Measured end to end for voice direction with a cloned reference on an RTX 3060:
 | --- | --- | --- | --- | --- | --- |
 | 1 | 8.26 ms | 33.73 ms | 11.79 ms | 53.78 ms | 1.49x |
 | 4 | 14.58 ms | 40.76 ms | 11.06 ms | 66.40 ms | 1.20x |
+
+These figures predate batching the backbone decode step into one graph, which
+roughly halved the `cfg_scale` 4 backbone cost (measured on an RTX card with
+Q8_0: 13-15 -> 7.0-7.3 ms/frame).
 
 Cloning adds a one off reference encode of roughly 650 ms, which lands on time to
 first audio and not on throughput.

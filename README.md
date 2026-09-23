@@ -247,8 +247,11 @@ the only external dependency.
 
 ## Notes
 
-- `--cfg-scale` defaults to 1.0, matching the reference. Values above 1 run the whole pipeline twice
-  and push harder toward the instruction. Past about 3 it turns harsh.
+- `--cfg-scale` defaults to 1.0, matching the reference. Values above 1 push harder toward the
+  instruction by running a second, unconditioned branch alongside the first; on CPU with Q8_0
+  (i9-12900K, 12 threads) cfg 4 costs about 3% more per frame than cfg 1 (198 vs 192 ms/frame). Most
+  of that extra cost is prompt encoding and prefill, which grow time to first audio (about 1.2 s vs
+  1.0 s). Past about 3 it turns harsh.
 - The vocoder comes from the bundled `audio_tokenizer/`, not the Mimi codec sitting in the main
   checkpoint. The reference never uses that one at inference time.
 - Streaming decodes in 2 second chunks with 72 frames of left context, which matches the vocoder
