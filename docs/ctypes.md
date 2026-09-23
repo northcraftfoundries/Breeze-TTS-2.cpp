@@ -85,9 +85,13 @@ def bind(lib):
     return lib
 ```
 
-`breeze_pin_cpus` takes a cpu list like `b"0-15"` or the literal `b"pcores"`,
-and must be called before `breeze_init` since the model's OpenMP threads
-inherit the process affinity when they spawn on the first graph compute.
+`breeze_pin_cpus` takes a cpu list like `b"0-15"` or the literal `b"pcores"`.
+On Linux it pins the calling thread and every thread it starts afterwards, so
+call it on the thread that will call `breeze_init`/generate and before the
+first generate; on Windows it pins the whole process. Either way it affects
+the host process, not just the library, and it sets the default thread count
+for contexts `breeze_init` creates afterwards to the number of CPUs actually
+pinned (`breeze_set_threads` still overrides).
 Under WSL2 or a VM the hybrid topology is hidden, so `b"pcores"` fails; pass an
 explicit list instead. There the list only limits which virtual CPUs are used,
 because the host decides which physical core runs each one, so it cannot select

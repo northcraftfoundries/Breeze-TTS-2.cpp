@@ -151,7 +151,9 @@ int breeze_set_threads(breeze_context * ctx, int n_threads);
 ```
 
 Sets the number of CPU threads used by `ctx`. Ignored on a GPU backend.
-`n_threads <= 0` keeps the current default. Returns `0` on success.
+`n_threads <= 0` keeps the current default -- the pinned CPU count if
+`breeze_pin_cpus` was called, otherwise the backend's own default. Returns
+`0` on success.
 
 ### `breeze_pin_cpus`
 
@@ -161,12 +163,16 @@ int breeze_pin_cpus(const char * spec);
 
 Pins to a set of logical CPUs before `breeze_init` loads the model. On Linux
 this covers the calling thread and every thread it starts afterwards, which
-includes the compute threads, so call it from the thread that will generate.
-On Windows it pins the whole process. `spec` is a cpu list like `"0-15"` or `"0,2,4-7"`, or the literal
-`"pcores"` to auto detect the performance cores on a hybrid CPU. Returns `0` on
-success, non zero if the spec is malformed, `"pcores"` couldn't find anything,
-or the platform doesn't support pinning; call `breeze_last_error` for the
-reason.
+includes the compute threads, so call it on the thread that will call
+`breeze_init`/`breeze_generate`, and before the first `breeze_generate`. On
+Windows it pins the whole process. Either way it affects the host process, not
+just the library. `spec` is a cpu list like `"0-15"` or `"0,2,4-7"`, or the literal
+`"pcores"` to auto detect the performance cores on a hybrid CPU. It also sets
+the default thread count to the number of CPUs actually pinned
+(`breeze_set_threads` still overrides) for every context `breeze_init` creates
+from here on, no matter which thread creates it. Returns `0` on success, non
+zero if the spec is malformed, `"pcores"` couldn't find anything, or the
+platform doesn't support pinning; call `breeze_last_error` for the reason.
 
 Under WSL2 or a VM the hybrid topology is hidden, so `"pcores"` fails; pass an
 explicit list instead. There the list only limits which virtual CPUs are used,

@@ -3,6 +3,7 @@
 #include "breeze/cpu_affinity.h"
 #include "breeze/generation.h"
 
+#include <atomic>
 #include <exception>
 #include <string>
 #include <vector>
@@ -15,6 +16,9 @@ struct breeze_context {
 };
 
 static std::string g_error;
+// set by breeze_pin_cpus, applied to contexts breeze_init creates; atomic because breeze_init
+// may run on a different thread than the one that called breeze_pin_cpus
+static std::atomic<int> g_pinned_cpu_count{0};
 
 static GenRequest to_req(const breeze_request * r) {
     GenRequest g;
@@ -46,6 +50,11 @@ breeze_context * breeze_init(const char * gguf_path, int use_gpu) {
         g_error = e.what();
         delete c;
         return nullptr;
+    }
+    // breeze_pin_cpus was called before this, so make its cpu count the default thread
+    // count for this context; breeze_set_threads afterwards still overrides it
+    if (g_pinned_cpu_count > 0) {
+        c->model.backend.set_threads(g_pinned_cpu_count);
     }
     c->codec.init(c->model);
     return c;
@@ -99,6 +108,11 @@ int breeze_set_threads(breeze_context * ctx, int n_threads) {
         g_error = "null context";
         return 1;
     }
+    // 0 means "default"; if cpus were pinned, that default is the pinned count, same as
+    // breeze_init applies and what the CLI/server use
+    if (n_threads <= 0 && g_pinned_cpu_count > 0) {
+        n_threads = g_pinned_cpu_count;
+    }
     ctx->model.backend.set_threads(n_threads);
     return 0;
 }
@@ -114,6 +128,7 @@ int breeze_pin_cpus(const char * spec) {
         g_error = err;
         return 1;
     }
+    g_pinned_cpu_count = (int) applied.size();
     return 0;
 }
 
