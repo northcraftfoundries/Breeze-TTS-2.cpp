@@ -62,8 +62,8 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    // pin before run_server loads the model: OpenMP workers inherit process affinity
-    // when they spawn on the first graph compute
+    // pin before run_server loads the model: the compute pool's workers are created then and
+    // inherit the affinity
     if (!cpus_arg.empty() || pcores) {
         std::string err;
         if (!resolve_and_pin(pcores ? "pcores" : cpus_arg, opts.pinned_cpus, err)) {

@@ -208,10 +208,9 @@ std::vector<int> detect_pcores() {
 #endif
 }
 
-// pins the process rather than ggml's own threadpool cpumask because this build uses
-// OpenMP: ggml ignores the threadpool cpumask under GGML_USE_OPENMP, and the OpenMP
-// worker threads inherit whatever affinity the process has when they're first spawned
-// on the initial graph compute. so pinning has to happen before the model runs anything.
+// pins at the os level rather than through ggml's threadpool cpumask so the one setting covers
+// every thread the app starts, not just the compute workers. the workers inherit it when the
+// backend creates its thread pool at model load, so pinning has to happen before that.
 bool pin_process(const std::vector<int> & cpus, std::string & err) {
     if (cpus.empty()) {
         err = "cpu list is empty";

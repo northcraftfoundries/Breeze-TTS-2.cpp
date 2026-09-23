@@ -122,10 +122,12 @@ mingw builds link the compiler runtime statically, so the binaries depend only
 on system DLLs plus `vulkan-1.dll`. You can copy them to a machine with no
 mingw installed and they will run.
 
-OpenMP is disabled for mingw because there is no static `libgomp`, and linking
-it dynamically would leak a `libgomp-1.dll` dependency into the shared library.
-The ggml CPU backend falls back to its own thread pool, so it still runs
-multithreaded.
+OpenMP is disabled on every platform. The CPU backend runs on one persistent
+ggml thread pool instead, shared by every thread that computes. OpenMP keeps a
+team per calling thread, and in the server those teams outgrew the CPU count
+and slowed every request about fourfold. On mingw it also avoids linking
+`libgomp`, which has no static build and would leak a `libgomp-1.dll`
+dependency into the shared library.
 
 ## Troubleshooting
 
