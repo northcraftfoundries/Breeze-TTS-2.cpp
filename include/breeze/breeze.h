@@ -52,12 +52,14 @@ BREEZE_API int breeze_generate_wav(breeze_context * ctx, const breeze_request * 
                                    const char * out_path);
 
 // sets the number of CPU threads used by ctx; ignored on GPU. n <= 0 keeps the default.
-// returns 0 on success, non zero on error (e.g. null ctx).
+// replaces the context's thread pool, so like generation it must not overlap another call on
+// the same context. returns 0 on success, non zero on error (e.g. null ctx).
 BREEZE_API int breeze_set_threads(breeze_context * ctx, int n_threads);
 
 // pins to a cpu list, e.g. "0-15", or the literal "pcores" to auto detect the performance
-// cores. on linux this pins the calling thread and every thread it starts afterwards, so
-// call it on the thread that will call breeze_init/generate, and before the first generate;
+// cores. on linux this pins the calling thread and every thread it starts afterwards, and
+// breeze_init starts the compute threads, so call it before breeze_init on the thread that
+// will call it;
 // on windows it pins the whole process. either way it affects the host process, not just
 // this library. it also sets the default thread count for contexts breeze_init creates
 // afterwards to the number of cpus actually pinned (breeze_set_threads still overrides) --

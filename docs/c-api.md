@@ -153,8 +153,9 @@ int breeze_set_threads(breeze_context * ctx, int n_threads);
 
 Sets the number of CPU threads used by `ctx`. Ignored on a GPU backend.
 `n_threads <= 0` keeps the current default -- the pinned CPU count if
-`breeze_pin_cpus` was called, otherwise the backend's own default. Returns
-`0` on success.
+`breeze_pin_cpus` was called, otherwise the backend's own default. It replaces
+the context's thread pool, so it must not run while another thread is
+generating on the same context. Returns `0` on success.
 
 ### `breeze_pin_cpus`
 
@@ -164,8 +165,8 @@ int breeze_pin_cpus(const char * spec);
 
 Pins to a set of logical CPUs before `breeze_init` loads the model. On Linux
 this covers the calling thread and every thread it starts afterwards, which
-includes the compute threads, so call it on the thread that will call
-`breeze_init`/`breeze_generate`, and before the first `breeze_generate`. On
+includes the compute threads `breeze_init` creates, so call it before
+`breeze_init`, on the thread that will call it. On
 Windows it pins the whole process. Either way it affects the host process, not
 just the library. `spec` is a cpu list like `"0-15"` or `"0,2,4-7"`, or the literal
 `"pcores"` to auto detect the performance cores on a hybrid CPU. It also sets
@@ -191,7 +192,8 @@ valid until the next failing call on that thread.
 
 ## Thread safety
 
-A `breeze_context` is **not** reentrant. One generation at a time per context.
+A `breeze_context` is **not** reentrant. One call at a time per context, which
+covers `breeze_set_threads` as well as generation.
 Guard it with a mutex, or create one context per worker if you have the memory
 for it, since each holds its own copy of the weights.
 

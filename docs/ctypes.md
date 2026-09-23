@@ -86,9 +86,9 @@ def bind(lib):
 ```
 
 `breeze_pin_cpus` takes a cpu list like `b"0-15"` or the literal `b"pcores"`.
-On Linux it pins the calling thread and every thread it starts afterwards, so
-call it on the thread that will call `breeze_init`/generate and before the
-first generate; on Windows it pins the whole process. Either way it affects
+On Linux it pins the calling thread and every thread it starts afterwards, and
+`breeze_init` starts the compute threads, so call it before `breeze_init` on
+the thread that will call it; on Windows it pins the whole process. Either way it affects
 the host process, not just the library, and it sets the default thread count
 for contexts `breeze_init` creates afterwards to the number of CPUs actually
 pinned (`breeze_set_threads` still overrides).

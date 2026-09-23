@@ -208,9 +208,10 @@ std::vector<int> detect_pcores() {
 #endif
 }
 
-// pins at the os level rather than through ggml's threadpool cpumask so the one setting covers
-// every thread the app starts, not just the compute workers. the workers inherit it when the
-// backend creates its thread pool at model load, so pinning has to happen before that.
+// pins at the os level rather than through ggml's threadpool cpumask so the one call covers the
+// app's own threads as well as the compute workers. on linux that means the calling thread and
+// the threads it creates afterwards, and the workers are created when the backend builds its
+// thread pool at model load, so pinning has to happen before that.
 bool pin_process(const std::vector<int> & cpus, std::string & err) {
     if (cpus.empty()) {
         err = "cpu list is empty";
