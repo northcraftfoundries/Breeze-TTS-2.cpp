@@ -4,6 +4,7 @@
 #include "breeze/voice.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -11,8 +12,9 @@ using namespace breeze;
 
 static const char * arg(int argc, char ** argv, int & i, const char * name) {
     if (i + 1 >= argc) {
+        // every flag reads its value through here, so no caller ever sees a null value
         fprintf(stderr, "missing value for %s\n", name);
-        return nullptr;
+        exit(1);
     }
     return argv[++i];
 }
