@@ -114,12 +114,12 @@ breeze-cli breeze-tts-2-f16.gguf \
 the logits as `uncond + scale * (cond - uncond)`. Backbone decode and the depth
 decoder batch both branches into one graph per step, so the extra branch is far
 cheaper than a doubling: measured on CPU with Q8_0 (i9-12900K, 12 threads), cfg
-4 costs about 3% more per frame than cfg 1 (198 vs 192 ms/frame). The remaining extra cost is mostly prompt encoding and
-prefill, which run once per branch and grow time to first audio (about 1.2 s vs
-1.0 s). The reference implementation defaults to `1.0`, which skips the second
-branch entirely. Higher values push harder toward the instruction; past about 2
-the output picks up an audible harshness, so raise it only when the voice is
-ignoring the description.
+4 costs about 3% more per frame than cfg 1 (198 vs 192 ms/frame). Prompt
+encoding and prefill run once per branch, which adds to time to first audio
+instead (about 1.2 s vs 1.0 s). The reference implementation defaults to `1.0`,
+which skips the second branch entirely. Higher values push harder toward the
+instruction; past about 2 the output picks up an audible harshness, so raise it
+only when the voice is ignoring the description.
 
 **`--seed`** fully determines the output for a given model and input. Sampling
 uses temperature 0.9 and top-k 50, so different seeds give genuinely different
