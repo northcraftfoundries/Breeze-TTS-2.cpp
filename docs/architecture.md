@@ -131,6 +131,20 @@ Each decode step after that runs both branches in one graph: the projections and
 FFN take both columns at once, so the weights are read once per frame, and only
 attention splits per branch, each over its own KV cache.
 
+With a reference voice, both prompts open with the same prefix: the `[S0]`
+reference transcript, then the reference frames and an EOS frame. Only the text
+segment after it differs. The text encoder never looks outside a segment and the
+backbone is causal, so the prefix's embeddings and backbone KV rows do not
+depend on anything that follows. `GenSession` prefills the prefix once, keeps
+those rows on the host (about 230 KB per prefix position), and copies them into
+each branch's fresh cache before prefilling only the tail. Because it lives in
+the session, one prefill serves both CFG branches, every piece of long text and
+every piece of a streaming session. It is rebuilt only when the reference text
+or codes change, as happens once in voice design when the first piece becomes
+the reference. The result is mathematically the same, but not always bit
+identical: the attention sums over a different number of keys, and ggml's F32
+dot product adds the part past the last full SIMD block in a different order.
+
 Measured end to end for voice direction with a cloned reference on an RTX 3060:
 
 | `cfg_scale` | Backbone | Depth | Vocoder | Total per frame | Real time factor |

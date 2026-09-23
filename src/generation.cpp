@@ -24,22 +24,33 @@ static Seg text_seg(BreezeModel & m, const std::string & s) {
     return seg;
 }
 
+static const std::string spk = "[S0]";
+
+// the reference transcript, then its audio closed by an eos frame
+static std::vector<Seg> prefix_segments(BreezeModel & m, const std::string & ref_text,
+                                        const std::vector<int> & ref_codes, int ref_T) {
+    std::vector<Seg> segs;
+    segs.push_back(text_seg(m, spk + ref_text));
+    Seg a;
+    a.is_text = false;
+    a.codes = ref_codes;
+    a.n_frames = ref_T;
+    a.eos = true;
+    segs.push_back(a);
+    return segs;
+}
+
+// the text to speak, which is the only part where the cfg branches differ
+static Seg tail_segment(BreezeModel & m, const GenRequest & r, const std::string & text, bool cond) {
+    return text_seg(m, cond ? spk + "<ins_bos>" + r.instruction + "<ins_eos>" + text : spk + text);
+}
+
 static std::vector<Seg> build_segments(BreezeModel & m, const GenRequest & r, const std::string & text,
                                        bool has_ref, const std::string & ref_text,
                                        const std::vector<int> & ref_codes, int ref_T, bool cond) {
     std::vector<Seg> segs;
-    const std::string spk = "[S0]";
-    if (has_ref) {
-        segs.push_back(text_seg(m, spk + ref_text));
-        Seg a;
-        a.is_text = false;
-        a.codes = ref_codes;
-        a.n_frames = ref_T;
-        a.eos = true;
-        segs.push_back(a);
-    }
-    std::string tail = cond ? spk + "<ins_bos>" + r.instruction + "<ins_eos>" + text : spk + text;
-    segs.push_back(text_seg(m, tail));
+    if (has_ref) segs = prefix_segments(m, ref_text, ref_codes, ref_T);
+    segs.push_back(tail_segment(m, r, text, cond));
     return segs;
 }
 
@@ -81,14 +92,36 @@ struct ChunkRef {
     std::string text;
 };
 
+static double since(std::chrono::steady_clock::time_point t) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
+}
+
+// the text encoder only looks within a segment and the backbone is causal, so the reference's
+// embeddings and kv rows are exactly what a full prompt would have produced for those positions
+static void build_prefix(BreezeModel & m, const ChunkRef & ref, PromptPrefix & prefix, GenTimings & tm) {
+    auto t0 = std::chrono::steady_clock::now();
+    int n = 0;
+    std::vector<float> emb = assemble(m, prefix_segments(m, ref.text, ref.codes, ref.n_frames), n);
+    tm.prompt += since(t0);
+
+    t0 = std::chrono::steady_clock::now();
+    BackboneState st;
+    st.init(m, n);
+    backbone_run(m, st, emb, n);
+    prefix.kv = st.kv.save(n);
+    st.free();
+    tm.prefill += since(t0);
+
+    prefix.text = ref.text;
+    prefix.codes = ref.codes;
+    prefix.len = n;
+}
+
 static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest & req,
-                           const std::string & text, const ChunkRef & ref, uint32_t seed,
-                           const AudioCallback & cb, GenTimings & tm,
+                           const std::string & text, const ChunkRef & ref, PromptPrefix & prefix,
+                           uint32_t seed, const AudioCallback & cb, GenTimings & tm,
                            std::chrono::steady_clock::time_point t_start, ChunkRef & out) {
     const auto clock_now = [] { return std::chrono::steady_clock::now(); };
-    const auto since = [](std::chrono::steady_clock::time_point t) {
-        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
-    };
 
     std::mt19937 rng(seed);
     const int nc = m.cfg.num_codebooks;
@@ -96,23 +129,33 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
     const bool has_ref = !ref.codes.empty() && !ref.text.empty();
     const bool use_cfg = req.cfg_scale != 1.0f;
 
-    const std::vector<int> & ref_codes = ref.codes;
-    const int ref_T = ref.n_frames;
+    if (has_ref && (prefix.text != ref.text || prefix.codes != ref.codes))
+        build_prefix(m, ref, prefix, tm);
+    const int pre_len = has_ref ? prefix.len : 0;
 
+    // only the tail is encoded here, the reference half comes out of the prefix cache
     auto t0 = clock_now();
     int total_c = 0, total_u = 0;
-    std::vector<float> emb_c = assemble(m, build_segments(m, req, text, has_ref, ref.text, ref_codes, ref_T, true), total_c);
+    std::vector<float> emb_c = assemble(m, { tail_segment(m, req, text, true) }, total_c);
     std::vector<float> emb_u;
-    if (use_cfg) emb_u = assemble(m, build_segments(m, req, text, has_ref, ref.text, ref_codes, ref_T, false), total_u);
+    if (use_cfg) emb_u = assemble(m, { tail_segment(m, req, text, false) }, total_u);
     tm.prompt += since(t0);
 
     const int max_new = req.max_new_tokens > 0 ? req.max_new_tokens : m.cfg.max_new_tokens;
 
     BackboneState st_c, st_u;
-    st_c.init(m, total_c + max_new + 8);
-    if (use_cfg) st_u.init(m, total_u + max_new + 8);
+    st_c.init(m, pre_len + total_c + max_new + 8);
+    if (use_cfg) st_u.init(m, pre_len + total_u + max_new + 8);
 
     t0 = clock_now();
+    if (has_ref) {
+        st_c.kv.load(prefix.kv, pre_len);
+        st_c.pos = pre_len;
+        if (use_cfg) {
+            st_u.kv.load(prefix.kv, pre_len);
+            st_u.pos = pre_len;
+        }
+    }
     StepOut o_c = backbone_run(m, st_c, emb_c, total_c);
     StepOut o_u;
     if (use_cfg) o_u = backbone_run(m, st_u, emb_u, total_u);
@@ -211,6 +254,8 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
 }
 
 void GenSession::begin(BreezeModel & m, MimiCodec & codec, const GenRequest & req, GenTimings * tm) {
+    // the cached kv belongs to the model that computed it; a new voice is caught by the key
+    if (m_model != &m) m_prefix = PromptPrefix();
     m_model = &m;
     m_codec = &codec;
     m_req = req;
@@ -244,7 +289,7 @@ bool GenSession::speak(const std::string & text, const AudioCallback & cb, GenTi
     anchor.text = m_text;
 
     ChunkRef made;
-    const bool ok = generate_chunk(*m_model, *m_codec, m_req, text, anchor,
+    const bool ok = generate_chunk(*m_model, *m_codec, m_req, text, anchor, m_prefix,
                                    (uint32_t) m_req.seed + m_piece, cb, t, m_start, made);
     m_piece++;
     // the opening piece stands in as the reference when there was no clip to clone

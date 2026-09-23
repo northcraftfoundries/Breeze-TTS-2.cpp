@@ -53,6 +53,30 @@ void KVCache::free() {
     ctx = nullptr;
 }
 
+// with one branch position p is slot p, so the first n positions are the front of each tensor
+std::vector<std::vector<uint8_t>> KVCache::save(int n) const {
+    GGML_ASSERT(n_branch == 1 && n <= max_seq);
+    const size_t bytes = (size_t) n * head_dim * n_kv_head * sizeof(float);
+    std::vector<std::vector<uint8_t>> rows(k.size() + v.size(), std::vector<uint8_t>(bytes));
+    for (size_t i = 0; i < rows.size(); i++) {
+        ggml_tensor * t = i < k.size() ? k[i] : v[i - k.size()];
+        ggml_backend_tensor_get(t, rows[i].data(), 0, bytes);
+    }
+    return rows;
+}
+
+void KVCache::load(const std::vector<std::vector<uint8_t>> & rows, int n) {
+    GGML_ASSERT(n_branch == 1 && n <= max_seq);
+    GGML_ASSERT(rows.size() == k.size() + v.size());
+    const size_t bytes = (size_t) n * head_dim * n_kv_head * sizeof(float);
+    for (size_t i = 0; i < rows.size(); i++) {
+        GGML_ASSERT(rows[i].size() == bytes);
+        ggml_tensor * t = i < k.size() ? k[i] : v[i - k.size()];
+        ggml_backend_tensor_set(t, rows[i].data(), 0, bytes);
+    }
+    len = n;
+}
+
 Graph::Graph(size_t n_nodes) {
     size_t mem = ggml_tensor_overhead() * n_nodes * 2 + ggml_graph_overhead_custom(n_nodes, false) + 8192;
     ggml_init_params p{ mem, nullptr, true };

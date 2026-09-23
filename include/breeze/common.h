@@ -33,6 +33,12 @@ struct KVCache {
     void init(Backend & be, int n_layer, int head_dim, int n_kv_head, int max_seq, int n_branch = 1);
     void reset() { len = 0; }
     void free();
+
+    // host copy of the first n positions of every layer, k layers then v layers, so a shared
+    // prompt prefix can be prefilled once and reused. single branch caches only
+    std::vector<std::vector<uint8_t>> save(int n) const;
+    // writes rows from save back at position 0 and leaves the cache n long
+    void load(const std::vector<std::vector<uint8_t>> & rows, int n);
 };
 
 // a single throwaway forward graph; input host data is stashed and uploaded after allocation

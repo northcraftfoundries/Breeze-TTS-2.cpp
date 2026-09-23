@@ -80,6 +80,15 @@ struct GenTimings {
 void generate(BreezeModel & m, MimiCodec & codec, const GenRequest & req, const AudioCallback & cb,
               GenTimings * timings = nullptr);
 
+// the reference half of the prompt, already run through the backbone. it is the same for both cfg
+// branches and every piece, so it is prefilled once and its kv rows copied into each new cache
+struct PromptPrefix {
+    std::string text;       // key: the reference transcript and codes it was built from
+    std::vector<int> codes;
+    int len = 0;            // positions it covers
+    std::vector<std::vector<uint8_t>> kv; // KVCache::save rows
+};
+
 // generation spread over several calls, for text that arrives a bit at a time. it holds the
 // reference so the voice does not drift between pieces, and the instruction can change as it goes
 class GenSession {
@@ -102,6 +111,7 @@ private:
     std::string m_text;
     int m_frames = 0;
     uint32_t m_piece = 0;
+    PromptPrefix m_prefix;
     std::chrono::steady_clock::time_point m_start;
 };
 
