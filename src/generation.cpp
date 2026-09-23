@@ -117,6 +117,11 @@ static void build_prefix(BreezeModel & m, const ChunkRef & ref, PromptPrefix & p
     prefix.len = n;
 }
 
+int resolve_chunk_max(int requested, bool is_gpu) {
+    if (requested > 0) return requested;
+    return is_gpu ? chunk_max_gpu : chunk_max_cpu;
+}
+
 static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest & req,
                            const std::string & text, const ChunkRef & ref, PromptPrefix & prefix,
                            uint32_t seed, const AudioCallback & cb, GenTimings & tm,
@@ -180,10 +185,11 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
     std::vector<int> frames;
     int emitted = 0;
     bool stopped = false;
-    // the first flush is small so audio starts early, then it grows to keep the vocoder efficient
-    // every flush re-decodes the same left context and throws it away. a gpu hides that cost behind
-    // dispatch overhead, the cpu pays it in full, so on cpu the ceiling is higher before it stops paying
-    const int chunk_max = req.chunk_max > 0 ? req.chunk_max : m.backend.is_gpu ? 25 : 60;
+    // the first flush is small so audio starts early, then it grows to keep the vocoder efficient.
+    // every flush re-decodes the same left context and throws it away. on a gpu that's still a real
+    // latency choice (server.md measures the gpu vocoder dropping from 13.2 to 10.9 ms/frame at 40),
+    // not free; the cpu pays about 4x more for the discarded context, so its default ceiling is higher
+    const int chunk_max = resolve_chunk_max(req.chunk_max, m.backend.is_gpu);
     int chunk = std::min(std::max(1, req.chunk_first), chunk_max);
     // the transformer window plus the slack the vocoder convolutions reach back over
     const int ctx = m.cfg.voc.sliding_window + 16;

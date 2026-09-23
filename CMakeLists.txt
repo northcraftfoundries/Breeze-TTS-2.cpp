@@ -121,6 +121,10 @@ if(BREEZE_BUILD_TESTS)
     target_link_libraries(test_cpu_affinity PRIVATE breeze_core)
     add_test(NAME cpu_affinity COMMAND test_cpu_affinity)
 
+    add_executable(test_chunking tests/test_chunking.cpp)
+    target_link_libraries(test_chunking PRIVATE breeze_core)
+    add_test(NAME chunking COMMAND test_chunking)
+
     # needs a real gguf, so it skips itself (exit 77) unless BREEZE_TEST_MODEL is set; ctest
     # inherits the environment, so setting it before invoking ctest is enough
     add_executable(test_backbone_step tests/test_backbone_step.cpp)

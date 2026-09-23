@@ -12,6 +12,16 @@
 
 namespace breeze {
 
+// gpu keeps chunks short for latency: it's a deliberate tradeoff, not free (see docs/server.md,
+// the gpu vocoder still drops from 13.2 to 10.9 ms/frame past this point)
+constexpr int chunk_max_gpu = 25;
+// cpu pays for the re-decoded context in full, about 4x what the gpu pays; 60 is where the
+// measured vocoder cost stops falling
+constexpr int chunk_max_cpu = 60;
+
+// requested > 0 always wins, otherwise pick the ceiling for the backend
+int resolve_chunk_max(int requested, bool is_gpu);
+
 struct GenRequest {
     std::string text;
     std::string instruction = "Speak clearly and naturally.";
