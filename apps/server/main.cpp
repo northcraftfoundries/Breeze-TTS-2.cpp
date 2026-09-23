@@ -17,7 +17,7 @@ int main(int argc, char ** argv) {
         printf("\n");
         printf("  --chunk-first  frames in the first streamed chunk, lower starts sooner (default 4)\n");
         printf("  --chunk-max    frames the chunk ramps up to, higher is more efficient\n");
-        printf("                 (default 25 on GPU, 60 on CPU)\n");
+        printf("                 (0 = auto: 25 on GPU, 60 on CPU)\n");
         printf("                 set both the same to stream a fixed chunk size\n");
         printf("  --split-chars  default length long text is broken up at (default 600), 0 sends the\n");
         printf("                 whole thing through in one pass. a request can still override it\n");

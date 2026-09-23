@@ -39,7 +39,7 @@ static void usage() {
            "  --max-new <n>       max frames to generate\n"
            "  --output <wav>      output path (default output.wav)\n"
            "  --chunk-first <n>   frames in the first streamed chunk (default 4)\n"
-           "  --chunk-max <n>     frames the chunk ramps up to (default 25 on GPU, 60 on CPU)\n"
+           "  --chunk-max <n>     frames the chunk ramps up to (0 = auto: 25 on GPU, 60 on CPU)\n"
            "  --timings           print a stage by stage latency breakdown\n"
            "  --cpu               force CPU backend\n"
            "  --threads <n>       CPU threads, 0 or omitted picks a default\n"
@@ -89,6 +89,11 @@ int main(int argc, char ** argv) {
         else if (a == "--pcores") pcores = true;
         else if (a == "-h" || a == "--help") { usage(); return 0; }
         else { fprintf(stderr, "unknown arg: %s\n", a.c_str()); return 1; }
+    }
+
+    if (req.chunk_first < 1 || req.chunk_max < 0) {
+        fprintf(stderr, "--chunk-first must be at least 1, and --chunk-max 0 (auto) or more\n");
+        return 1;
     }
 
     if (list_voices) {
