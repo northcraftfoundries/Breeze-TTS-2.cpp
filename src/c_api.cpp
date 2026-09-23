@@ -108,20 +108,9 @@ int breeze_pin_cpus(const char * spec) {
         g_error = "null cpu spec";
         return 1;
     }
-    std::vector<int> cpus;
+    std::vector<int> applied;
     std::string err;
-    if (std::string(spec) == "pcores") {
-        cpus = detect_pcores();
-        if (cpus.empty()) {
-            g_error = "could not detect performance cores on this system (hybrid topology hidden, "
-                      "e.g. under WSL or a VM); pass an explicit cpu list instead";
-            return 1;
-        }
-    } else if (!parse_cpu_list(spec, cpus, err)) {
-        g_error = err;
-        return 1;
-    }
-    if (!pin_process(cpus, err)) {
+    if (!resolve_and_pin(spec, applied, err)) {
         g_error = err;
         return 1;
     }

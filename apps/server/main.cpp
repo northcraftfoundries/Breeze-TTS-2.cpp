@@ -63,19 +63,12 @@ int main(int argc, char ** argv) {
 
     // pin before run_server loads the model: OpenMP workers inherit process affinity
     // when they spawn on the first graph compute
-    if (!cpus_arg.empty()) {
+    if (!cpus_arg.empty() || pcores) {
         std::string err;
-        if (!parse_cpu_list(cpus_arg, opts.pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
-        if (!pin_process(opts.pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
-    } else if (pcores) {
-        opts.pinned_cpus = detect_pcores();
-        if (opts.pinned_cpus.empty()) {
-            fprintf(stderr, "could not detect performance cores on this system (hybrid topology "
-                             "hidden, e.g. under WSL or a VM); use --cpus <list> instead\n");
+        if (!resolve_and_pin(pcores ? "pcores" : cpus_arg, opts.pinned_cpus, err)) {
+            fprintf(stderr, "%s\n", err.c_str());
             return 1;
         }
-        std::string err;
-        if (!pin_process(opts.pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
     }
 
     return run_server(opts);

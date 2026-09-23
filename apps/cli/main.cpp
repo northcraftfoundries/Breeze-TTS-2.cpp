@@ -130,20 +130,12 @@ int main(int argc, char ** argv) {
 
     std::vector<int> pinned_cpus;
     bool pinned = false;
-    if (!cpus_arg.empty()) {
+    if (!cpus_arg.empty() || pcores) {
         std::string err;
-        if (!parse_cpu_list(cpus_arg, pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
-        if (!pin_process(pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
-        pinned = true;
-    } else if (pcores) {
-        pinned_cpus = detect_pcores();
-        if (pinned_cpus.empty()) {
-            fprintf(stderr, "could not detect performance cores on this system (hybrid topology "
-                             "hidden, e.g. under WSL or a VM); use --cpus <list> instead\n");
+        if (!resolve_and_pin(pcores ? "pcores" : cpus_arg, pinned_cpus, err)) {
+            fprintf(stderr, "%s\n", err.c_str());
             return 1;
         }
-        std::string err;
-        if (!pin_process(pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
         pinned = true;
     }
 

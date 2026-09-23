@@ -154,7 +154,7 @@ static std::vector<int> detect_pcores_cpuid() {
     }
     pthread_setaffinity_np(pthread_self(), sizeof(original), &original);
 
-    std::sort(pcores.begin(), pcores.end());
+    // cpu loop above already runs 0..CPU_SETSIZE in order, so pcores is already ascending
     return pcores;
 }
 #endif
@@ -253,8 +253,73 @@ bool pin_process(const std::vector<int> & cpus, std::string & err) {
 #endif
 }
 
+#ifdef __linux__
+static bool read_process_affinity(std::vector<int> & cpus) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) != 0) return false;
+    cpus.clear();
+    for (int cpu = 0; cpu <= max_cpu_id(); cpu++) {
+        if (CPU_ISSET(cpu, &set)) cpus.push_back(cpu);
+    }
+    return true;
+}
+#elif defined(_WIN32)
+static bool read_process_affinity(std::vector<int> & cpus) {
+    DWORD_PTR process_mask = 0, system_mask = 0;
+    if (!GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask)) return false;
+    cpus.clear();
+    for (int cpu = 0; cpu <= max_cpu_id(); cpu++) {
+        if (process_mask & (DWORD_PTR(1) << cpu)) cpus.push_back(cpu);
+    }
+    return true;
+}
+#else
+static bool read_process_affinity(std::vector<int> & cpus) {
+    (void) cpus;
+    return false; // no supported way to read affinity back on this platform
+}
+#endif
+
+// number of cpus in the current affinity mask; built on the same read-back helper
+// resolve_and_pin uses, so it agrees with what pinning actually applied.
+int process_cpu_count() {
+    std::vector<int> cpus;
+    if (!read_process_affinity(cpus)) return 0;
+    return (int) cpus.size();
+}
+
+bool resolve_and_pin(const std::string & spec, std::vector<int> & applied, std::string & err) {
+    std::vector<int> requested;
+    if (spec == "pcores") {
+        requested = detect_pcores();
+        if (requested.empty()) {
+            err = "could not detect performance cores on this system (hybrid topology hidden, "
+                  "e.g. under WSL or a VM); pass an explicit cpu list instead (--cpus on the command line)";
+            return false;
+        }
+    } else if (!parse_cpu_list(spec, requested, err)) {
+        return false;
+    }
+    if (!pin_process(requested, err)) {
+        return false;
+    }
+    // the kernel only keeps the overlap with the cpus we're actually allowed to run on, so
+    // read back the effective mask rather than trusting the list we asked for. if the read
+    // itself fails (unsupported platform), the pin still took, so fall back to what we asked for.
+    if (!read_process_affinity(applied)) {
+        applied = requested;
+    } else if (applied.empty()) {
+        err = "pinning left no cpus available";
+        return false;
+    }
+    return true;
+}
+
 std::string format_cpu_list(const std::vector<int> & cpus) {
     if (cpus.empty()) return "";
+    // this is a public function, so don't rely on callers to hand us a sorted, de-duplicated
+    // list; sort a local copy instead
     std::vector<int> sorted = cpus;
     std::sort(sorted.begin(), sorted.end());
     sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
