@@ -22,6 +22,7 @@ changes and interruption. It is documented in [websocket.md](websocket.md).
 breeze-server <model.gguf> [--host H] [--port P] [--webui] [--cpu]
                            [--chunk-first N] [--chunk-max N] [--verbose]
                            [--voices-dir PATH] [--ws-port P] [--split-chars N]
+                           [--threads N] [--cpus LIST] [--pcores]
 ```
 
 | Flag | Default | Meaning |
@@ -36,6 +37,16 @@ breeze-server <model.gguf> [--host H] [--port P] [--webui] [--cpu]
 | `--voices-dir` | `voices` | Folder of saved `.breeze` voices to load at startup. See [voices.md](voices.md). |
 | `--ws-port` | HTTP port + 1 | Port for streaming sessions. `-1` disables it. See [websocket.md](websocket.md). |
 | `--split-chars` | `600` | Default length long text is broken up at. `0` sends the whole thing through in one pass. A request can still override it. |
+| `--threads` | auto | CPU threads. `0` or omitted uses half the available CPUs, or one per pinned CPU. |
+| `--cpus` | none | Pin the process to these logical CPUs, e.g. `0-15` or `0,2,4-7`. Mutually exclusive with `--pcores`. |
+| `--pcores` | off | Pin the process to the performance cores (auto detected). Mutually exclusive with `--cpus`. |
+
+`--threads`, `--cpus` and `--pcores` only matter on the CPU backend, though
+pinning applies harmlessly if you pass it alongside a GPU backend too.
+Under WSL2 or a VM the hybrid topology is hidden, so `--pcores` refuses to
+guess; use `--cpus` instead. There the list only limits which virtual CPUs are
+used, because the host decides which physical core runs each one, so it cannot
+select P-cores. Pinning to P-cores only works on bare metal.
 
 ```
 breeze-server breeze-tts-2-q4_k.gguf --port 8137 --webui

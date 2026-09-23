@@ -16,10 +16,14 @@ struct Backend {
     ggml_backend_t backend = nullptr;
     ggml_gallocr_t alloc = nullptr;
     bool is_gpu = false;
+    int n_threads = 0; // cpu threads in effect, 0 on gpu
 
     void init(bool prefer_gpu);
     void free();
     const char * name() const;
+
+    // applies n cpu threads; ignored on gpu. n <= 0 keeps the current default.
+    void set_threads(int n);
 };
 
 // persistent per-layer key/value cache living in its own backend buffer

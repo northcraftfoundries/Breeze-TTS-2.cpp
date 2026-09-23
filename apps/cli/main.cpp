@@ -1,4 +1,5 @@
 #include "breeze/audio.h"
+#include "breeze/cpu_affinity.h"
 #include "breeze/generation.h"
 #include "breeze/model.h"
 #include "breeze/voice.h"
@@ -7,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 using namespace breeze;
 
@@ -39,7 +41,10 @@ static void usage() {
            "  --chunk-first <n>   frames in the first streamed chunk (default 4)\n"
            "  --chunk-max <n>     frames the chunk ramps up to (default 25)\n"
            "  --timings           print a stage by stage latency breakdown\n"
-           "  --cpu               force CPU backend\n");
+           "  --cpu               force CPU backend\n"
+           "  --threads <n>       CPU threads, 0 or omitted picks a default\n"
+           "  --cpus <list>       pin the process to these logical CPUs, e.g. 0-15\n"
+           "  --pcores            pin the process to the performance cores (auto detected)\n");
 }
 
 int main(int argc, char ** argv) {
@@ -52,6 +57,9 @@ int main(int argc, char ** argv) {
     bool list_voices = false;
     bool use_gpu = true;
     bool show_timings = false;
+    int n_threads = 0;
+    std::string cpus_arg;
+    bool pcores = false;
 
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
@@ -76,6 +84,9 @@ int main(int argc, char ** argv) {
         else if (a == "--output") output = arg(argc, argv, i, "--output");
         else if (a == "--timings") show_timings = true;
         else if (a == "--cpu") use_gpu = false;
+        else if (a == "--threads") n_threads = atoi(arg(argc, argv, i, "--threads"));
+        else if (a == "--cpus") cpus_arg = arg(argc, argv, i, "--cpus");
+        else if (a == "--pcores") pcores = true;
         else if (a == "-h" || a == "--help") { usage(); return 0; }
         else { fprintf(stderr, "unknown arg: %s\n", a.c_str()); return 1; }
     }
@@ -112,10 +123,51 @@ int main(int argc, char ** argv) {
         }
     }
 
+    if (!cpus_arg.empty() && pcores) {
+        fprintf(stderr, "--cpus and --pcores are mutually exclusive\n");
+        return 1;
+    }
+
+    std::vector<int> pinned_cpus;
+    bool pinned = false;
+    if (!cpus_arg.empty()) {
+        std::string err;
+        if (!parse_cpu_list(cpus_arg, pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
+        if (!pin_process(pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
+        pinned = true;
+    } else if (pcores) {
+        pinned_cpus = detect_pcores();
+        if (pinned_cpus.empty()) {
+            fprintf(stderr, "could not detect performance cores on this system (hybrid topology "
+                             "hidden, e.g. under WSL or a VM); use --cpus <list> instead\n");
+            return 1;
+        }
+        std::string err;
+        if (!pin_process(pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
+        pinned = true;
+    }
+
     BreezeModel model;
     printf("loading %s ...\n", model_path.c_str());
     if (!model.load(model_path, use_gpu)) { fprintf(stderr, "failed to load model\n"); return 1; }
-    printf("backend: %s, sample rate: %d\n", model.backend.name(), model.cfg.sample_rate);
+
+    if (n_threads > 0) {
+        model.backend.set_threads(n_threads);
+    } else if (pinned) {
+        // the user chose this exact set of CPUs, so use one thread per CPU rather than the
+        // halved default meant for a full, unpinned SMT machine
+        model.backend.set_threads((int) pinned_cpus.size());
+    }
+
+    if (model.backend.is_gpu) {
+        printf("backend: %s, sample rate: %d\n", model.backend.name(), model.cfg.sample_rate);
+    } else if (pinned) {
+        printf("backend: %s, threads: %d, pinned to: %s, sample rate: %d\n", model.backend.name(),
+               model.backend.n_threads, format_cpu_list(pinned_cpus).c_str(), model.cfg.sample_rate);
+    } else {
+        printf("backend: %s, threads: %d, sample rate: %d\n", model.backend.name(),
+               model.backend.n_threads, model.cfg.sample_rate);
+    }
 
     if (!ref_audio_path.empty()) {
         if (!read_wav(ref_audio_path, model.cfg.sample_rate, req.ref_audio)) {

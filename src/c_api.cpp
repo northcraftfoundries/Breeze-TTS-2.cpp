@@ -1,5 +1,6 @@
 #include "breeze/breeze.h"
 #include "breeze/audio.h"
+#include "breeze/cpu_affinity.h"
 #include "breeze/generation.h"
 
 #include <exception>
@@ -88,6 +89,40 @@ int breeze_generate_wav(breeze_context * ctx, const breeze_request * req, const 
         }
     } catch (const std::exception & e) {
         g_error = e.what();
+        return 1;
+    }
+    return 0;
+}
+
+int breeze_set_threads(breeze_context * ctx, int n_threads) {
+    if (!ctx) {
+        g_error = "null context";
+        return 1;
+    }
+    ctx->model.backend.set_threads(n_threads);
+    return 0;
+}
+
+int breeze_pin_cpus(const char * spec) {
+    if (!spec) {
+        g_error = "null cpu spec";
+        return 1;
+    }
+    std::vector<int> cpus;
+    std::string err;
+    if (std::string(spec) == "pcores") {
+        cpus = detect_pcores();
+        if (cpus.empty()) {
+            g_error = "could not detect performance cores on this system (hybrid topology hidden, "
+                      "e.g. under WSL or a VM); pass an explicit cpu list instead";
+            return 1;
+        }
+    } else if (!parse_cpu_list(spec, cpus, err)) {
+        g_error = err;
+        return 1;
+    }
+    if (!pin_process(cpus, err)) {
+        g_error = err;
         return 1;
     }
     return 0;

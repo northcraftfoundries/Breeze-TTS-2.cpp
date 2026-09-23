@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace breeze {
 
@@ -16,6 +17,8 @@ struct ServerOptions {
     int chunk_first = 4;
     int chunk_max = 25;
     int split_chars = 600; // 0 keeps long text in a single pass
+    int n_threads = 0; // 0 picks the backend default
+    std::vector<int> pinned_cpus; // empty when the process wasn't pinned; set by main() before run_server
 };
 
 int run_server(const ServerOptions & opts);

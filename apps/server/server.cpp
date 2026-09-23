@@ -4,6 +4,7 @@
 #include "ws_api.h"
 
 #include "breeze/audio.h"
+#include "breeze/cpu_affinity.h"
 #include "breeze/generation.h"
 #include "breeze/model.h"
 
@@ -55,7 +56,24 @@ int run_server(const ServerOptions & opts) {
         fprintf(stderr, "failed to load model\n");
         return 1;
     }
-    printf("backend: %s, sample rate: %d\n", model.backend.name(), model.cfg.sample_rate);
+
+    if (opts.n_threads > 0) {
+        model.backend.set_threads(opts.n_threads);
+    } else if (!opts.pinned_cpus.empty()) {
+        // the user chose this exact set of CPUs, so use one thread per CPU rather than the
+        // halved default meant for a full, unpinned SMT machine
+        model.backend.set_threads((int) opts.pinned_cpus.size());
+    }
+
+    if (model.backend.is_gpu) {
+        printf("backend: %s, sample rate: %d\n", model.backend.name(), model.cfg.sample_rate);
+    } else if (!opts.pinned_cpus.empty()) {
+        printf("backend: %s, threads: %d, pinned to: %s, sample rate: %d\n", model.backend.name(),
+               model.backend.n_threads, format_cpu_list(opts.pinned_cpus).c_str(), model.cfg.sample_rate);
+    } else {
+        printf("backend: %s, threads: %d, sample rate: %d\n", model.backend.name(),
+               model.backend.n_threads, model.cfg.sample_rate);
+    }
     MimiCodec codec;
     codec.init(model);
 

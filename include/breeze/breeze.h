@@ -51,6 +51,14 @@ BREEZE_API int breeze_generate(breeze_context * ctx, const breeze_request * req,
 BREEZE_API int breeze_generate_wav(breeze_context * ctx, const breeze_request * req,
                                    const char * out_path);
 
+// sets the number of CPU threads used by ctx; ignored on GPU. n <= 0 keeps the default.
+// returns 0 on success, non zero on error (e.g. null ctx).
+BREEZE_API int breeze_set_threads(breeze_context * ctx, int n_threads);
+
+// pins to a cpu list (on linux the calling thread and the threads it starts later), e.g. "0-15", or the literal "pcores" to
+// auto detect the performance cores. call before breeze_init. returns 0 on success.
+BREEZE_API int breeze_pin_cpus(const char * spec);
+
 BREEZE_API const char * breeze_last_error(void);
 
 #ifdef __cplusplus

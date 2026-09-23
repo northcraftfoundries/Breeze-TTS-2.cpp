@@ -29,7 +29,17 @@ breeze-cli <model.gguf> --text <text> [options]
 | `--chunk-max <n>` | `25` | Frames the chunk ramps up to. |
 | `--timings` | off | Print a stage by stage latency breakdown. |
 | `--cpu` | off | Force the CPU backend. |
+| `--threads <n>` | auto | CPU threads. `0` or omitted uses half the available CPUs, or one per pinned CPU. |
+| `--cpus <list>` | none | Pin the process to these logical CPUs, e.g. `0-15` or `0,2,4-7`. Mutually exclusive with `--pcores`. |
+| `--pcores` | off | Pin the process to the performance cores (auto detected). Mutually exclusive with `--cpus`. |
 | `-h`, `--help` | | Print usage. |
+
+`--threads`, `--cpus` and `--pcores` only matter on the CPU backend, though
+pinning applies harmlessly if you pass it alongside a GPU backend too.
+Under WSL2 or a VM the hybrid topology is hidden, so `--pcores` refuses to
+guess; use `--cpus` instead. There the list only limits which virtual CPUs are
+used, because the host decides which physical core runs each one, so it cannot
+select P-cores. Pinning to P-cores only works on bare metal.
 
 Progress prints as `generated N.NN s` while the audio streams in.
 

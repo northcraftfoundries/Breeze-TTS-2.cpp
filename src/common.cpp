@@ -1,10 +1,32 @@
 #include "breeze/common.h"
 #include "ggml-cpu.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <thread>
+
+#ifdef __linux__
+#include <sched.h>
+#endif
 
 namespace breeze {
+
+// default cpu thread count. SMT siblings share a core and this workload is memory
+// bandwidth bound, so hyperthreads don't add throughput; halve whatever we count.
+// isolated here since the main session will revise this default after a benchmark sweep.
+static int default_n_threads() {
+    int n = 0;
+#ifdef __linux__
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
+        n = CPU_COUNT(&set);
+    }
+#endif
+    if (n <= 0) n = (int) std::thread::hardware_concurrency();
+    return std::max(1, n / 2);
+}
 
 void Backend::init(bool prefer_gpu) {
     if (prefer_gpu) {
@@ -16,6 +38,16 @@ void Backend::init(bool prefer_gpu) {
         is_gpu = false;
     }
     alloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend));
+    if (!is_gpu) {
+        n_threads = default_n_threads();
+        ggml_backend_cpu_set_n_threads(backend, n_threads);
+    }
+}
+
+void Backend::set_threads(int n) {
+    if (is_gpu) return;
+    n_threads = n > 0 ? n : default_n_threads();
+    ggml_backend_cpu_set_n_threads(backend, n_threads);
 }
 
 const char * Backend::name() const {

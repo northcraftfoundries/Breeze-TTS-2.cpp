@@ -144,6 +144,35 @@ int breeze_generate_wav(breeze_context * ctx, const breeze_request * req,
 Same as `breeze_generate` but buffers everything and writes a 16 bit PCM WAV.
 Returns `0` on success.
 
+### `breeze_set_threads`
+
+```c
+int breeze_set_threads(breeze_context * ctx, int n_threads);
+```
+
+Sets the number of CPU threads used by `ctx`. Ignored on a GPU backend.
+`n_threads <= 0` keeps the current default. Returns `0` on success.
+
+### `breeze_pin_cpus`
+
+```c
+int breeze_pin_cpus(const char * spec);
+```
+
+Pins to a set of logical CPUs before `breeze_init` loads the model. On Linux
+this covers the calling thread and every thread it starts afterwards, which
+includes the compute threads, so call it from the thread that will generate.
+On Windows it pins the whole process. `spec` is a cpu list like `"0-15"` or `"0,2,4-7"`, or the literal
+`"pcores"` to auto detect the performance cores on a hybrid CPU. Returns `0` on
+success, non zero if the spec is malformed, `"pcores"` couldn't find anything,
+or the platform doesn't support pinning; call `breeze_last_error` for the
+reason.
+
+Under WSL2 or a VM the hybrid topology is hidden, so `"pcores"` fails; pass an
+explicit list instead. There the list only limits which virtual CPUs are used,
+because the host decides which physical core runs each one, so it cannot select
+P-cores. Pinning to P-cores only works on bare metal.
+
 ### `breeze_last_error`
 
 ```c

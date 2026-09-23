@@ -33,6 +33,7 @@ add_subdirectory(third_party/ggml)
 
 set(BREEZE_SOURCES
     src/common.cpp
+    src/cpu_affinity.cpp
     src/audio.cpp
     src/config.cpp
     src/gguf_loader.cpp
@@ -54,6 +55,12 @@ set(BREEZE_SOURCES
 add_library(breeze_core STATIC ${BREEZE_SOURCES})
 target_include_directories(breeze_core PUBLIC include)
 target_link_libraries(breeze_core PUBLIC ggml)
+if(NOT WIN32)
+    # cpu_affinity.cpp calls pthread_[gs]etaffinity_np directly, which some libc
+    # versions still ship in libpthread rather than libc itself
+    find_package(Threads REQUIRED)
+    target_link_libraries(breeze_core PUBLIC Threads::Threads)
+endif()
 
 # make mingw binaries self contained so they do not pick up stray runtime DLLs
 if(MINGW)

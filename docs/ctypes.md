@@ -77,9 +77,21 @@ def bind(lib):
     lib.breeze_generate_wav.argtypes = [
         ctypes.c_void_p, ctypes.POINTER(BreezeRequest), ctypes.c_char_p
     ]
+    lib.breeze_set_threads.restype = ctypes.c_int
+    lib.breeze_set_threads.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.breeze_pin_cpus.restype = ctypes.c_int
+    lib.breeze_pin_cpus.argtypes = [ctypes.c_char_p]
     lib.breeze_last_error.restype = ctypes.c_char_p
     return lib
 ```
+
+`breeze_pin_cpus` takes a cpu list like `b"0-15"` or the literal `b"pcores"`,
+and must be called before `breeze_init` since the model's OpenMP threads
+inherit the process affinity when they spawn on the first graph compute.
+Under WSL2 or a VM the hybrid topology is hidden, so `b"pcores"` fails; pass an
+explicit list instead. There the list only limits which virtual CPUs are used,
+because the host decides which physical core runs each one, so it cannot select
+P-cores. Pinning to P-cores only works on bare metal.
 
 `breeze_init` must be declared `c_void_p` rather than left at the default
 `c_int`, otherwise the 64 bit handle gets truncated and the process crashes on

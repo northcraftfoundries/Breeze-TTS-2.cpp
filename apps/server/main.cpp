@@ -1,5 +1,7 @@
 #include "server.h"
 
+#include "breeze/cpu_affinity.h"
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -11,6 +13,7 @@ int main(int argc, char ** argv) {
         printf("usage: breeze-server <model.gguf> [--host H] [--port P] [--webui] [--cpu]\n");
         printf("                     [--chunk-first N] [--chunk-max N] [--verbose]\n");
         printf("                     [--voices-dir PATH] [--ws-port P] [--split-chars N]\n");
+        printf("                     [--threads N] [--cpus LIST] [--pcores]\n");
         printf("\n");
         printf("  --chunk-first  frames in the first streamed chunk, lower starts sooner (default 4)\n");
         printf("  --chunk-max    frames the chunk ramps up to, higher is more efficient (default 25)\n");
@@ -21,10 +24,15 @@ int main(int argc, char ** argv) {
         printf("  --voices-dir   folder of saved .breeze voices to load at startup (default voices)\n");
         printf("  --ws-port      websocket port for streaming sessions, default is the http port + 1,\n");
         printf("                 -1 turns it off\n");
+        printf("  --threads      CPU threads, 0 or omitted picks a default\n");
+        printf("  --cpus         pin the process to these logical CPUs, e.g. 0-15\n");
+        printf("  --pcores       pin the process to the performance cores (auto detected)\n");
         return argc < 2 ? 1 : 0;
     }
     ServerOptions opts;
     opts.model = argv[1];
+    std::string cpus_arg;
+    bool pcores = false;
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--host" && i + 1 < argc) opts.host = argv[++i];
@@ -37,6 +45,9 @@ int main(int argc, char ** argv) {
         else if (a == "--chunk-first" && i + 1 < argc) opts.chunk_first = atoi(argv[++i]);
         else if (a == "--chunk-max" && i + 1 < argc) opts.chunk_max = atoi(argv[++i]);
         else if (a == "--split-chars" && i + 1 < argc) opts.split_chars = atoi(argv[++i]);
+        else if (a == "--threads" && i + 1 < argc) opts.n_threads = atoi(argv[++i]);
+        else if (a == "--cpus" && i + 1 < argc) cpus_arg = argv[++i];
+        else if (a == "--pcores") pcores = true;
         else { fprintf(stderr, "unknown arg: %s\n", a.c_str()); return 1; }
     }
     if (opts.split_chars < 0) opts.split_chars = 0;
@@ -44,5 +55,28 @@ int main(int argc, char ** argv) {
         fprintf(stderr, "chunk sizes must be at least 1\n");
         return 1;
     }
+
+    if (!cpus_arg.empty() && pcores) {
+        fprintf(stderr, "--cpus and --pcores are mutually exclusive\n");
+        return 1;
+    }
+
+    // pin before run_server loads the model: OpenMP workers inherit process affinity
+    // when they spawn on the first graph compute
+    if (!cpus_arg.empty()) {
+        std::string err;
+        if (!parse_cpu_list(cpus_arg, opts.pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
+        if (!pin_process(opts.pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
+    } else if (pcores) {
+        opts.pinned_cpus = detect_pcores();
+        if (opts.pinned_cpus.empty()) {
+            fprintf(stderr, "could not detect performance cores on this system (hybrid topology "
+                             "hidden, e.g. under WSL or a VM); use --cpus <list> instead\n");
+            return 1;
+        }
+        std::string err;
+        if (!pin_process(opts.pinned_cpus, err)) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
+    }
+
     return run_server(opts);
 }
