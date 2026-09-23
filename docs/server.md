@@ -32,7 +32,7 @@ breeze-server <model.gguf> [--host H] [--port P] [--webui] [--cpu]
 | `--webui` | off | Also serve the browser UI at `/`. |
 | `--cpu` | off | Force the CPU backend instead of Vulkan. |
 | `--chunk-first` | `4` | Frames in the first streamed chunk. |
-| `--chunk-max` | `25` | Frames the chunk ramps up to. |
+| `--chunk-max` | `25` GPU, `60` CPU | Frames the chunk ramps up to. |
 | `--verbose` | off | Add a per stage timing breakdown after each request. |
 | `--voices-dir` | `voices` | Folder of saved `.breeze` voices to load at startup. See [voices.md](voices.md). |
 | `--ws-port` | HTTP port + 1 | Port for streaming sessions. `-1` disables it. See [websocket.md](websocket.md). |
@@ -150,6 +150,18 @@ on an RTX 3060 at Q8_0:
 Past about 40 the context is amortised and there is nothing left to win, while
 chunks keep getting slower to produce and demand a deeper client queue.
 
+The CPU pays for the discarded context in full, so its knee sits higher.
+Measured on an i9-12900K at Q8_0 with 12 threads, over one 19 s piece:
+
+| `--chunk-max` | Vocoder per frame | Time to first audio |
+| --- | --- | --- |
+| 25 | 97.9 ms | 1183 ms |
+| 40 | 82.0 ms | 1188 ms |
+| 60 | 74.1 ms | 1211 ms |
+| 100 | 74.2 ms | 1187 ms |
+
+That is why the default ceiling is 60 on the CPU and 25 on a GPU.
+
 Lower `--chunk-first` for a faster start. Four frames is about 320 ms of audio
 and lands near 400 ms on an RTX 3060; one frame gets there in roughly 220 ms but
 flushes far more often. It only affects the first chunk, so it costs nothing in
@@ -159,7 +171,8 @@ Setting both flags to the same value disables the ramp and streams a fixed size.
 
 ### Summary
 
-- Aim for `--chunk-max 40` unless you are on a fast device and want a finer stream.
+- On a GPU, aim for `--chunk-max 40` unless you are on a fast device and want a finer
+  stream. On the CPU the default of 60 is already at the knee.
 - Buffer at least 1 s on the client, more if you raised `--chunk-max`.
 - Prebuffer by fill level, not by delay.
 - Check the real time factor first if it stutters no matter what you buffer.

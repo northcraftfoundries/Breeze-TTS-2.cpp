@@ -181,7 +181,9 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest 
     int emitted = 0;
     bool stopped = false;
     // the first flush is small so audio starts early, then it grows to keep the vocoder efficient
-    const int chunk_max = std::max(1, req.chunk_max);
+    // every flush re-decodes the same left context and throws it away. a gpu hides that cost behind
+    // dispatch overhead, the cpu pays it in full, so on cpu the ceiling is higher before it stops paying
+    const int chunk_max = req.chunk_max > 0 ? req.chunk_max : m.backend.is_gpu ? 25 : 60;
     int chunk = std::min(std::max(1, req.chunk_first), chunk_max);
     // the transformer window plus the slack the vocoder convolutions reach back over
     const int ctx = m.cfg.voc.sliding_window + 16;

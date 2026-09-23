@@ -26,7 +26,7 @@ breeze-cli <model.gguf> --text <text> [options]
 | `--split-chars <n>` | `600` | Split long text into pieces of about this many characters. `0` generates in one pass. |
 | `--output <wav>` | `output.wav` | Output path. |
 | `--chunk-first <n>` | `4` | Frames in the first streamed chunk. |
-| `--chunk-max <n>` | `25` | Frames the chunk ramps up to. |
+| `--chunk-max <n>` | `25` GPU, `60` CPU | Frames the chunk ramps up to. |
 | `--timings` | off | Print a stage by stage latency breakdown. |
 | `--cpu` | off | Force the CPU backend. |
 | `--threads <n>` | auto | CPU threads. `0` or omitted uses half the available CPUs (at least 4, or all of them if fewer), or one per pinned CPU. |
@@ -64,7 +64,8 @@ per frame, each needing its own GPU round trip. Everything else is small by
 comparison.
 
 Audio is flushed in growing chunks, starting at 4 frames so playback can begin
-early and growing to 25 frames so the vocoder stays efficient. That keeps time
+early and growing to 25 frames on a GPU, or 60 on the CPU, so the vocoder stays
+efficient. That keeps time
 to first audio near 350 ms while generation as a whole runs comfortably faster
 than realtime.
 

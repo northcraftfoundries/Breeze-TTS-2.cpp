@@ -16,7 +16,8 @@ int main(int argc, char ** argv) {
         printf("                     [--threads N] [--cpus LIST] [--pcores]\n");
         printf("\n");
         printf("  --chunk-first  frames in the first streamed chunk, lower starts sooner (default 4)\n");
-        printf("  --chunk-max    frames the chunk ramps up to, higher is more efficient (default 25)\n");
+        printf("  --chunk-max    frames the chunk ramps up to, higher is more efficient\n");
+        printf("                 (default 25 on GPU, 60 on CPU)\n");
         printf("                 set both the same to stream a fixed chunk size\n");
         printf("  --split-chars  default length long text is broken up at (default 600), 0 sends the\n");
         printf("                 whole thing through in one pass. a request can still override it\n");
@@ -51,8 +52,8 @@ int main(int argc, char ** argv) {
         else { fprintf(stderr, "unknown arg: %s\n", a.c_str()); return 1; }
     }
     if (opts.split_chars < 0) opts.split_chars = 0;
-    if (opts.chunk_first < 1 || opts.chunk_max < 1) {
-        fprintf(stderr, "chunk sizes must be at least 1\n");
+    if (opts.chunk_first < 1 || opts.chunk_max < 0) {
+        fprintf(stderr, "--chunk-first must be at least 1, and --chunk-max 0 (auto) or more\n");
         return 1;
     }
 

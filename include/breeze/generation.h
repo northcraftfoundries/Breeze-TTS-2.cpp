@@ -29,9 +29,10 @@ struct GenRequest {
     float top_p = 0.0f;
     float repetition_penalty = 0.0f;
     int max_new_tokens = 0; // 0 uses the model default
-    // frames per streamed chunk, ramping from first to max. set both the same for a fixed size
+    // frames per streamed chunk, ramping from first to max. set both the same for a fixed size.
+    // chunk_max 0 picks a ceiling for the backend
     int chunk_first = 4;
-    int chunk_max = 25;
+    int chunk_max = 0;
     // long text is generated in pieces of about this many characters, 0 keeps it in one pass.
     // the model loses track of the text somewhere past a minute of audio, so pieces stay under that
     int split_chars = 600;

@@ -39,7 +39,7 @@ static void usage() {
            "  --max-new <n>       max frames to generate\n"
            "  --output <wav>      output path (default output.wav)\n"
            "  --chunk-first <n>   frames in the first streamed chunk (default 4)\n"
-           "  --chunk-max <n>     frames the chunk ramps up to (default 25)\n"
+           "  --chunk-max <n>     frames the chunk ramps up to (default 25 on GPU, 60 on CPU)\n"
            "  --timings           print a stage by stage latency breakdown\n"
            "  --cpu               force CPU backend\n"
            "  --threads <n>       CPU threads, 0 or omitted picks a default\n"
